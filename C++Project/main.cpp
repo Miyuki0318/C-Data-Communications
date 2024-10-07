@@ -1,91 +1,138 @@
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <iostream>
+#include <string>
 #include <thread>
 #include <winsock2.h>
-#include <string>
+#include <ws2tcpip.h>
 
-#pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "Ws2_32.lib")
 
-using namespace std;
+const int BUFFER_SIZE = 4096;
 
-void receiveMessages(SOCKET sock) {
-    char buffer[1024];
+void ReceiveMessages(SOCKET socket) {
+    char buffer[BUFFER_SIZE];
     while (true) {
-        int bytesReceived = recv(sock, buffer, sizeof(buffer), 0);
+        int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            cout << "相手: " << buffer << endl;
+            std::cout << buffer << std::endl;
         }
-    }
-}
-
-void sendMessages(SOCKET sock, const string& username) {
-    char buffer[1024];
-    while (true) {
-        string message;
-        getline(cin, message);
-        message = username + ": " + message;
-        send(sock, message.c_str(), message.size(), 0);
+        else if (bytesReceived == 0) {
+            std::cout << "Connection closed." << std::endl;
+            break;
+        }
+        else {
+            std::cout << "Error in recv(). Quitting" << std::endl;
+            break;
+        }
     }
 }
 
 int main() {
     WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    // ポート番号の入力と接続先の情報設定
-    string mode;
-    cout << "接続モードを選択してください (server/client): ";
-    cin >> mode;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cout << "Failed to initialize Winsock." << std::endl;
+        return 1;
+    }
 
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // ローカルホストを使用
-    cin.ignore();
-
-    if (mode == "server") {
-        // サーバーモード（相手の接続を待つ）
-        int port;
-        cout << "使用するポート番号を入力してください: ";
-        cin >> port;
-        addr.sin_port = htons(port);
-
-        bind(sock, (sockaddr*)&addr, sizeof(addr));
-        listen(sock, SOMAXCONN);
-
-        SOCKET clientSock = accept(sock, NULL, NULL);
-        cout << "接続されました。" << endl;
-        string username;
-        cout << "ユーザー名を入力してください: ";
-        cin >> username;
-
-        thread receiveThread(receiveMessages, clientSock);
-        sendMessages(clientSock, username);
-        receiveThread.join();
-        closesocket(clientSock);
-
-    }
-    else if (mode == "client") {
-        // クライアントモード（サーバーに接続）
-        int port;
-        cout << "相手のポート番号を入力してください: ";
-        cin >> port;
-        addr.sin_port = htons(port);
-
-        connect(sock, (sockaddr*)&addr, sizeof(addr));
-        cout << "接続しました。" << endl;
-
-        string username;
-        cout << "ユーザー名を入力してください: ";
-        cin >> username;
-
-        thread receiveThread(receiveMessages, sock);
-        sendMessages(sock, username);
-        receiveThread.join();
-        closesocket(sock);
+    if (sock == INVALID_SOCKET) {
+        std::cout << "Failed to create socket." << std::endl;
+        WSACleanup();
+        return 1;
     }
 
+    std::string username;
+    std::cout << "Enter your username: ";
+    std::getline(std::cin, username);
+
+    std::string mode;
+    std::cout << "Enter 'listen' to wait for a connection or 'connect' to connect to another peer: ";
+    std::getline(std::cin, mode);
+
+    if (mode == "listen") {
+        sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_addr.s_addr = INADDR_ANY;
+        serverAddr.sin_port = htons(0);  // Let the system choose a port
+
+        if (bind(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+            std::cout << "Bind failed." << std::endl;
+            closesocket(sock);
+            WSACleanup();
+            return 1;
+        }
+
+        // Get the port number assigned by the system
+        int addrLen = sizeof(serverAddr);
+        getsockname(sock, (sockaddr*)&serverAddr, &addrLen);
+        std::cout << "Listening on port " << ntohs(serverAddr.sin_port) << std::endl;
+
+        if (listen(sock, 1) == SOCKET_ERROR) {
+            std::cout << "Listen failed." << std::endl;
+            closesocket(sock);
+            WSACleanup();
+            return 1;
+        }
+
+        SOCKET clientSocket = accept(sock, NULL, NULL);
+        if (clientSocket == INVALID_SOCKET) {
+            std::cout << "Accept failed." << std::endl;
+            closesocket(sock);
+            WSACleanup();
+            return 1;
+        }
+
+        std::cout << "Connection established." << std::endl;
+
+        std::thread(ReceiveMessages, clientSocket).detach();
+
+        std::string message;
+        while (true) {
+            std::getline(std::cin, message);
+            if (message == "exit") break;
+            std::string fullMessage = username + ": " + message;
+            send(clientSocket, fullMessage.c_str(), fullMessage.length(), 0);
+        }
+
+        closesocket(clientSocket);
+    }
+    else if (mode == "connect") {
+        std::string ip;
+        std::string port;
+        std::cout << "Enter IP address to connect to: ";
+        std::getline(std::cin, ip);
+        std::cout << "Enter port number to connect to: ";
+        std::getline(std::cin, port);
+
+        sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
+        serverAddr.sin_port = htons(std::stoi(port));
+
+        if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+            std::cout << "Failed to connect." << std::endl;
+            closesocket(sock);
+            WSACleanup();
+            return 1;
+        }
+
+        std::cout << "Connected to peer." << std::endl;
+
+        std::thread(ReceiveMessages, sock).detach();
+
+        std::string message;
+        while (true) {
+            std::getline(std::cin, message);
+            if (message == "exit") break;
+            std::string fullMessage = username + ": " + message;
+            send(sock, fullMessage.c_str(), fullMessage.length(), 0);
+        }
+    }
+    else {
+        std::cout << "Invalid mode." << std::endl;
+    }
+
+    closesocket(sock);
     WSACleanup();
     return 0;
 }
