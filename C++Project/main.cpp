@@ -17,72 +17,103 @@ void ReceiveMessages(SOCKET socket) {
             std::cout << buffer << std::endl;
         }
         else if (bytesReceived == 0) {
-            std::cout << "Connection closed." << std::endl;
+            std::cout << "接続が閉じられました。" << std::endl;
             break;
         }
         else {
-            std::cout << "Error in recv(). Quitting" << std::endl;
+            std::cout << "受信中にエラーが発生しました。終了します。" << std::endl;
             break;
         }
     }
 }
 
+std::string GetLocalIPAddress() {
+    char hostName[256];
+    if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR) {
+        return "ホスト名の取得に失敗しました";
+    }
+
+    struct addrinfo hints, * result = nullptr;
+    ZeroMemory(&hints, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    if (getaddrinfo(hostName, NULL, &hints, &result) != 0) {
+        return "IPアドレスの取得に失敗しました";
+    }
+
+    char ipAddress[INET_ADDRSTRLEN];
+    sockaddr_in* sockaddr_ipv4 = reinterpret_cast<sockaddr_in*>(result->ai_addr);
+    inet_ntop(AF_INET, &sockaddr_ipv4->sin_addr, ipAddress, sizeof(ipAddress));
+
+    freeaddrinfo(result);
+    return std::string(ipAddress);
+}
+
 int main() {
+    // コンソールの文字コードをUTF-8に設定
+    SetConsoleOutputCP(CP_UTF8);
+
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        std::cout << "Failed to initialize Winsock." << std::endl;
+        std::cout << "Winsockの初期化に失敗しました。" << std::endl;
         return 1;
     }
 
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
-        std::cout << "Failed to create socket." << std::endl;
+        std::cout << "ソケットの作成に失敗しました。" << std::endl;
         WSACleanup();
         return 1;
     }
 
     std::string username;
-    std::cout << "Enter your username: ";
+    std::cout << "ユーザー名を入力してください: ";
     std::getline(std::cin, username);
 
     std::string mode;
-    std::cout << "Enter 'listen' to wait for a connection or 'connect' to connect to another peer: ";
+    std::cout << "チャットルームを作成しますか？ (Y/N): ";
     std::getline(std::cin, mode);
 
-    if (mode == "listen") {
+    if (mode == "Y" || mode == "y") {
         sockaddr_in serverAddr;
         serverAddr.sin_family = AF_INET;
         serverAddr.sin_addr.s_addr = INADDR_ANY;
-        serverAddr.sin_port = htons(0);  // Let the system choose a port
+        serverAddr.sin_port = htons(0);  // システムにポートを選択させる
 
         if (bind(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-            std::cout << "Bind failed." << std::endl;
+            std::cout << "バインドに失敗しました。" << std::endl;
             closesocket(sock);
             WSACleanup();
             return 1;
         }
 
-        // Get the port number assigned by the system
+        // システムが割り当てたポート番号を取得
         int addrLen = sizeof(serverAddr);
         getsockname(sock, (sockaddr*)&serverAddr, &addrLen);
-        std::cout << "Listening on port " << ntohs(serverAddr.sin_port) << std::endl;
+        std::string localIP = GetLocalIPAddress();
+        std::cout << "あなたのIPアドレス: " << localIP << std::endl;
+        std::cout << "ポート番号: " << ntohs(serverAddr.sin_port) << std::endl;
 
         if (listen(sock, 1) == SOCKET_ERROR) {
-            std::cout << "Listen failed." << std::endl;
+            std::cout << "リッスンに失敗しました。" << std::endl;
             closesocket(sock);
             WSACleanup();
             return 1;
         }
+
+        std::cout << "接続を待っています..." << std::endl;
 
         SOCKET clientSocket = accept(sock, NULL, NULL);
         if (clientSocket == INVALID_SOCKET) {
-            std::cout << "Accept failed." << std::endl;
+            std::cout << "接続の受け入れに失敗しました。" << std::endl;
             closesocket(sock);
             WSACleanup();
             return 1;
         }
 
-        std::cout << "Connection established." << std::endl;
+        std::cout << "接続が確立されました。" << std::endl;
 
         std::thread(ReceiveMessages, clientSocket).detach();
 
@@ -96,12 +127,12 @@ int main() {
 
         closesocket(clientSocket);
     }
-    else if (mode == "connect") {
+    else if (mode == "N" || mode == "n") {
         std::string ip;
         std::string port;
-        std::cout << "Enter IP address to connect to: ";
+        std::cout << "接続先のIPアドレスを入力してください: ";
         std::getline(std::cin, ip);
-        std::cout << "Enter port number to connect to: ";
+        std::cout << "接続先のポート番号を入力してください: ";
         std::getline(std::cin, port);
 
         sockaddr_in serverAddr;
@@ -110,13 +141,13 @@ int main() {
         serverAddr.sin_port = htons(std::stoi(port));
 
         if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-            std::cout << "Failed to connect." << std::endl;
+            std::cout << "接続に失敗しました。" << std::endl;
             closesocket(sock);
             WSACleanup();
             return 1;
         }
 
-        std::cout << "Connected to peer." << std::endl;
+        std::cout << "ピアに接続しました。" << std::endl;
 
         std::thread(ReceiveMessages, sock).detach();
 
@@ -129,7 +160,7 @@ int main() {
         }
     }
     else {
-        std::cout << "Invalid mode." << std::endl;
+        std::cout << "無効な選択です。" << std::endl;
     }
 
     closesocket(sock);
