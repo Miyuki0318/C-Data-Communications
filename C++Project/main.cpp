@@ -18,28 +18,16 @@ void SetUTF8Console() {
     _setmode(_fileno(stderr), _O_U8TEXT);
 }
 
-// UTF-8 to wide string conversion
-std::wstring UTF8ToWide(const std::string& str) {
-    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-    if (len > 0)
-    {
-        std::wstring wstr(len, 0);
-        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], len);
-        return wstr;
-    }
-    return L"";
+// UTF-8‚©‚çwstring‚É•ÏŠ·‚·‚éŠÖ”
+std::wstring UTF8ToWString(const std::string& utf8Str) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    return converter.from_bytes(utf8Str);
 }
 
-// Wide string to UTF-8 conversion
-std::string WideToUTF8(const std::wstring& wstr) {
-    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    if (len > 0)
-    {
-        std::string str(len, 0);
-        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], len, nullptr, nullptr);
-        return str;
-    }
-    return "";
+// wstring‚©‚çUTF-8‚É•ÏŠ·‚·‚éŠÖ”
+std::string WStringToUTF8(const std::wstring& wstr) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    return converter.to_bytes(wstr);
 }
 
 void ReceiveMessages(SOCKET socket) {
@@ -48,8 +36,8 @@ void ReceiveMessages(SOCKET socket) {
         int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            std::string utf8Message(buffer, bytesReceived);
-            std::wcout << UTF8ToWide(utf8Message) << std::endl;
+            std::string utf8Message(buffer);
+            std::wcout << UTF8ToWString(utf8Message) << std::endl;
         }
         else if (bytesReceived == 0) {
             std::wcout << L"Ú‘±‚ª•Â‚¶‚ç‚ê‚Ü‚µ‚½B" << std::endl;
@@ -156,7 +144,7 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WideToUTF8(fullMessage);
+            std::string utf8Message = WStringToUTF8(fullMessage);
             send(clientSocket, utf8Message.c_str(), utf8Message.length(), 0);
         }
 
@@ -192,7 +180,7 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WideToUTF8(fullMessage);
+            std::string utf8Message = WStringToUTF8(fullMessage);
             send(sock, utf8Message.c_str(), utf8Message.length(), 0);
         }
     }
