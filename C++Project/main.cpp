@@ -2,35 +2,57 @@
 #include <iostream>
 #include <string>
 
-int main() {
-    try {
+using namespace std;
+
+int main()
+{
+    try
+    {
+        // PPDataConnecterクラスのインスタンスを生成
         PPDataConnecter connecter;
+
+        // コンソールをUnicodeに設定（UTF-8対応）
         connecter.SetConsoleToUnicode();
+
+        // Winsockライブラリを初期化
         connecter.InitializeWinsock();
+
+        // ソケットを作成
         SOCKET socket = connecter.CreateSocket();
 
-        std::wstring username;
-        std::wcout << L"ユーザー名を入力してください: ";
-        std::getline(std::wcin, username);
+        // ユーザー名を入力
+        wstring username;
+        wcout << L"ユーザー名を入力してください: ";
+        getline(wcin, username);
 
-        std::wstring mode;
-        std::wcout << L"チャットルームを作成しますか？ (Y/N): ";
-        std::getline(std::wcin, mode);
+        // サーバー作成モードかクライアントモードかを選択
+        wstring mode;
+        wcout << L"チャットルームを作成しますか？ (Y/N): ";
+        getline(wcin, mode);
 
-        if (mode == L"Y" || mode == L"y") {
-            connecter.StartServer(socket, username);
+        // サーバーモードの場合
+        if (mode == L"Y" || mode == L"y")
+        {
+            connecter.StartServer(socket, username); // サーバーを起動
         }
-        else if (mode == L"N" || mode == L"n") {
-            connecter.ConnectToServer(socket, username);
+        // クライアントモードの場合
+        else if (mode == L"N" || mode == L"n")
+        {
+            connecter.ConnectToServer(socket, username); // サーバーに接続
         }
-        else {
-            std::wcout << L"無効な選択です。" << std::endl;
+        else
+        {
+            // 無効な選択肢が入力された場合
+            wcout << L"無効な選択です。" << endl;
         }
 
+        // ソケットを閉じる
         closesocket(socket);
     }
-    catch (const std::exception& ex) {
-        std::wcout << L"エラー: " << UTF8ToWString(ex.what()) << std::endl;
+    catch (const exception& ex)
+    {
+        // 例外発生時のエラーメッセージを表示
+        wcout << L"エラー: " << UTF8ToWString(ex.what()) << endl;
     }
 
     return 0;

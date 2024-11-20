@@ -5,28 +5,49 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-// wstringからUTF-8に変換する関数（改良版）
-std::string WStringToUTF8(const std::wstring& wstr);
+using namespace std;
 
-// UTF-8からwstringに変換する関数（改良版）
-std::wstring UTF8ToWString(const std::string& utf8Str);
+// wstringとUTF-8の相互変換を行うユーティリティ関数
+string WStringToUTF8(const wstring& wstr); // wstringをUTF-8形式のstringに変換
+wstring UTF8ToWString(const string& utf8Str); // UTF-8形式のstringをwstringに変換
 
-class PPDataConnecter {
+// PPDataConnecterクラスは、データ通信やソケット管理を行う
+class PPDataConnecter
+{
 public:
-    PPDataConnecter();
-    ~PPDataConnecter();
+    // コンストラクタとデストラクタ
+    PPDataConnecter(); // クラスの初期化
+    ~PPDataConnecter(); // クラスの終了処理
 
+    // Winsockの初期化
     void InitializeWinsock();
+
+    // コンソールをUnicode（UTF-8）に設定
     void SetConsoleToUnicode();
+
+    // 新しいソケットを作成
     SOCKET CreateSocket();
-    void StartServer(SOCKET& serverSocket, const std::wstring& username);
-    void ConnectToServer(SOCKET& clientSocket, const std::wstring& username);
-    static void SendMessage(SOCKET sock, const std::wstring& username, const std::wstring& message);
-    static void ReceiveMessages(SOCKET socket);
-    static std::wstring GetLocalIPAddress();
+
+    // サーバーを開始し、クライアントからの接続を待機
+    void StartServer(SOCKET& serverSocket, const wstring& username);
+
+    // サーバーに接続して通信を開始
+    void ConnectToServer(SOCKET& clientSocket, const wstring& username);
+
+    // メッセージを送信する静的メソッド
+    static void SendPPMessage(SOCKET sock, const wstring& username, const wstring& message);
+
+    // メッセージを受信する静的メソッド
+    static void ReceivePPMessages(SOCKET socket);
+
+    // ローカルIPアドレスを取得する静的メソッド
+    static wstring GetLocalIPAddress();
 
 private:
+    // サーバーソケットをバインドしてリッスン状態にする
     void BindAndListen(SOCKET& serverSocket);
+
+    // クライアントの接続を受け入れる
     void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
 };
 
