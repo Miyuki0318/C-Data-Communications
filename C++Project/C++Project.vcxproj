@@ -20,10 +20,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="PPDataConnector.cpp" />
+    <ClCompile Include="PPDataConnecter.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="PPDataConnector.h" />
+    <ClInclude Include="PPDataConnecter.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
