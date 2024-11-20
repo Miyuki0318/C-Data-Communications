@@ -5,6 +5,8 @@
 #include <ws2tcpip.h>
 #include <fcntl.h>
 #include <io.h>
+#include <locale>
+#include <codecvt>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -16,13 +18,26 @@ void SetUTF8Console() {
     _setmode(_fileno(stderr), _O_U8TEXT);
 }
 
+// UTF-8 to wide string conversion
+std::wstring UTF8ToWide(const std::string& str) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    return converter.from_bytes(str);
+}
+
+// Wide string to UTF-8 conversion
+std::string WideToUTF8(const std::wstring& wstr) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+    return converter.to_bytes(wstr);
+}
+
 void ReceiveMessages(SOCKET socket) {
     char buffer[BUFFER_SIZE];
     while (true) {
         int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            std::wcout << std::wstring(buffer, buffer + bytesReceived) << std::endl;
+            std::string utf8Message(buffer, bytesReceived);
+            std::wcout << UTF8ToWide(utf8Message) << std::endl;
         }
         else if (bytesReceived == 0) {
             std::wcout << L"Ú‘±‚ª•Â‚¶‚ç‚ê‚Ü‚µ‚½B" << std::endl;
@@ -129,7 +144,7 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message(fullMessage.begin(), fullMessage.end());
+            std::string utf8Message = WideToUTF8(fullMessage);
             send(clientSocket, utf8Message.c_str(), utf8Message.length(), 0);
         }
 
@@ -144,10 +159,9 @@ int main() {
         std::getline(std::wcin, port);
 
         sockaddr_in serverAddr;
-        serverAddr.sin_family = AF_INET;
-        std::string narrow_ip(ip.begin(), ip.end());
+        std::string narrow_ip = WideToUTF8(ip);
         inet_pton(AF_INET, narrow_ip.c_str(), &serverAddr.sin_addr);
-        serverAddr.sin_port = htons(std::stoi(std::string(port.begin(), port.end())));
+        serverAddr.sin_port = htons(std::stoi(WideToUTF8(port)));
 
         if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
             std::wcout << L"Ú‘±‚ÉŽ¸”s‚µ‚Ü‚µ‚½B" << std::endl;
@@ -165,7 +179,7 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message(fullMessage.begin(), fullMessage.end());
+            std::string utf8Message = WideToUTF8(fullMessage);
             send(sock, utf8Message.c_str(), utf8Message.length(), 0);
         }
     }
