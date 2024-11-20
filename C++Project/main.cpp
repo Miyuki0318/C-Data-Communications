@@ -20,14 +20,26 @@ void SetUTF8Console() {
 
 // UTF-8 to wide string conversion
 std::wstring UTF8ToWide(const std::string& str) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-    return converter.from_bytes(str);
+    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    if (len > 0)
+    {
+        std::wstring wstr(len, 0);
+        MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &wstr[0], len);
+        return wstr;
+    }
+    return L"";
 }
 
 // Wide string to UTF-8 conversion
 std::string WideToUTF8(const std::wstring& wstr) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-    return converter.to_bytes(wstr);
+    int len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (len > 0)
+    {
+        std::string str(len, 0);
+        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &str[0], len, nullptr, nullptr);
+        return str;
+    }
+    return "";
 }
 
 void ReceiveMessages(SOCKET socket) {
