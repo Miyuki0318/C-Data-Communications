@@ -5,64 +5,94 @@
 #include <ws2tcpip.h>
 #include <fcntl.h>
 #include <io.h>
+// #include "gameconnect.hpp"
 
 #pragma comment(lib, "Ws2_32.lib")
 
+// メッセージサイズ上限
 const int BUFFER_SIZE = 4096;
 
+// ファイルの変換モードをUTF8に変更する
 void SetUTF8Console() {
     _setmode(_fileno(stdin), _O_U8TEXT);
     _setmode(_fileno(stdout), _O_U8TEXT);
     _setmode(_fileno(stderr), _O_U8TEXT);
 }
 
+// メッセージ受信用関数(socket : ポート番号)
 void ReceiveMessages(SOCKET socket) {
+    // メッセージ格納用変数
     char buffer[BUFFER_SIZE];
+
     while (true) {
+        // 受信したバイト数を取得し、bufferに受信したデータを格納
         int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
+
         if (bytesReceived > 0) {
+            // 受信したデータの最後に空文字追加
             buffer[bytesReceived] = '\0';
+
+            // 受信したデータを出力
             std::wcout << std::wstring(buffer, buffer + bytesReceived) << std::endl;
         }
         else if (bytesReceived == 0) {
+            // データ受信がなかった場合、接続を終了する
             std::wcout << L"接続が閉じられました。" << std::endl;
             break;
         }
         else {
+            // 負数が返された場合はエラー
             std::wcout << L"受信中にエラーが発生しました。終了します。" << std::endl;
             break;
         }
     }
 }
 
+// 自身のIPアドレスを取得する関数
 std::wstring GetLocalIPAddress() {
+    // ホスト名
     char hostName[256];
+
+    // ホスト名が取得できたかをチェック
     if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR) {
         return L"ホスト名の取得に失敗しました";
     }
 
     struct addrinfo hints, * result = nullptr;
+    // メモリを0クリアする
     ZeroMemory(&hints, sizeof(hints));
+    // アドレスファミリを設定
     hints.ai_family = AF_INET;
+    // ソケットタイプを設定
     hints.ai_socktype = SOCK_STREAM;
+    // 通信プロトコルを設定
     hints.ai_protocol = IPPROTO_TCP;
 
+    // IPアドレスの取得の可否
     if (getaddrinfo(hostName, NULL, &hints, &result) != 0) {
         return L"IPアドレスの取得に失敗しました";
     }
 
+    // IPアドレス格納用文字列
     char ipAddress[INET_ADDRSTRLEN];
+    // ソケットアドレス格納用変数
     sockaddr_in* sockaddr_ipv4 = reinterpret_cast<sockaddr_in*>(result->ai_addr);
+    // ソケットアドレスを文字列に変換したものをIPアドレス用文字列に代入
     inet_ntop(AF_INET, &sockaddr_ipv4->sin_addr, ipAddress, sizeof(ipAddress));
-
+    // resultのメモリを解放
     freeaddrinfo(result);
+    // IPアドレスを返す
     return std::wstring(ipAddress, ipAddress + strlen(ipAddress));
 }
 
 int main() {
+    // ファイルの変換モードの変更
     SetUTF8Console();
 
+    // Windowsソケットのデータ
     WSADATA wsaData;
+
+    //  
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::wcout << L"Winsockの初期化に失敗しました。" << std::endl;
         return 1;
@@ -99,6 +129,7 @@ int main() {
         // システムが割り当てたポート番号を取得
         int addrLen = sizeof(serverAddr);
         getsockname(sock, (sockaddr*)&serverAddr, &addrLen);
+        // 自身のIPアドレスを取得
         std::wstring localIP = GetLocalIPAddress();
         std::wcout << L"あなたのIPアドレス: " << localIP << std::endl;
         std::wcout << L"ポート番号: " << ntohs(serverAddr.sin_port) << std::endl;
