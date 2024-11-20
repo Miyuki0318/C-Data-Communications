@@ -15,10 +15,11 @@ const int BUFFER_SIZE = 4096;
 
 // コンソールの出力をShift-JISに設定
 void SetShiftJISConsole() {
-    SetConsoleOutputCP(932);  // コンソールの出力をShift-JISに設定
-    _setmode(_fileno(stdout), _O_U8TEXT);  // 標準出力をShift-JISに設定
-    _setmode(_fileno(stderr), _O_U8TEXT);  // 標準エラー出力をShift-JISに設定
-    _setmode(_fileno(stdin), _O_U8TEXT);  // 標準入力をShift-JISに設定
+    // コンソールのコードページをShift-JISに設定
+    SetConsoleOutputCP(932);
+    _setmode(_fileno(stdout), _O_U8TEXT);  // 標準出力をUTF-8として設定
+    _setmode(_fileno(stderr), _O_U8TEXT);  // 標準エラー出力をUTF-8として設定
+    _setmode(_fileno(stdin), _O_U8TEXT);   // 標準入力をUTF-8として設定
 }
 
 // Shift-JISからwstringに変換する関数
@@ -30,7 +31,7 @@ std::wstring SJISToWString(const std::string& sjisStr) {
 }
 
 // wstringからShift-JISに変換する関数
-std::string WStringToSJI(const std::wstring& wstr) {
+std::string WStringToSJIS(const std::wstring& wstr) {
     int size_needed = WideCharToMultiByte(932, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
     std::string sjis_str(size_needed, 0);
     WideCharToMultiByte(932, 0, wstr.c_str(), (int)wstr.size(), &sjis_str[0], size_needed, nullptr, nullptr);
@@ -151,7 +152,7 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string sjisMessage = WStringToSJI(fullMessage);
+            std::string sjisMessage = WStringToSJIS(fullMessage);
             send(clientSocket, sjisMessage.c_str(), sjisMessage.length(), 0);
         }
 
@@ -178,7 +179,7 @@ int main() {
             return 1;
         }
 
-        std::wcout << L"接続が確立されました。" << std::endl;
+        std::wcout << L"接続しました。" << std::endl;
 
         std::thread(ReceiveMessages, sock).detach();
 
@@ -186,8 +187,7 @@ int main() {
         while (true) {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
-            std::wstring fullMessage = username + L": " + message;
-            std::string sjisMessage = WStringToSJI(fullMessage);
+            std::string sjisMessage = WStringToSJIS(message);
             send(sock, sjisMessage.c_str(), sjisMessage.length(), 0);
         }
 
