@@ -97,7 +97,6 @@ void PPDataConnector::SendPPMessage(const wstring& message)
 {
     // 送信メッセージをUTF-16に変換
     int messageLength = message.length() * sizeof(wchar_t); // UTF-16バイト長
-    send(socket_, reinterpret_cast<const char*>(&messageLength), sizeof(messageLength), 0); // メッセージ長を送信
 
     // メッセージ内容を送信
     send(socket_, reinterpret_cast<const char*>(message.c_str()), messageLength, 0);
