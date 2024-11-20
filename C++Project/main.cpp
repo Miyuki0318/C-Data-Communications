@@ -13,38 +13,70 @@
 
 const int BUFFER_SIZE = 4096;
 
-// コンソールの出力をUTF-16に設定
+// コンソールの出力をUTF-8に設定
 void SetUnicodeConsole() {
-    SetConsoleOutputCP(CP_UTF8); // 出力コードページをUTF-8に設定
-    _setmode(_fileno(stdout), _O_U8TEXT);  // 標準出力をUTF-16として設定
-    _setmode(_fileno(stderr), _O_U8TEXT);  // 標準エラー出力をUTF-16として設定
-    _setmode(_fileno(stdin), _O_U8TEXT);   // 標準入力をUTF-16として設定
+    // UTF-8コードページを有効化
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+
+    // 標準入出力をUTF-8モードに設定
+    _setmode(_fileno(stdout), _O_U8TEXT);
+    _setmode(_fileno(stdin), _O_U8TEXT);
+    _setmode(_fileno(stderr), _O_U8TEXT);
+
+    // コンソールフォントをMS Gothic等の日本語フォントに設定
+    CONSOLE_FONT_INFOEX cfi;
+    cfi.cbSize = sizeof(cfi);
+    cfi.nFont = 0;
+    cfi.dwFontSize.X = 0;
+    cfi.dwFontSize.Y = 16;
+    cfi.FontFamily = FF_DONTCARE;
+    cfi.FontWeight = FW_NORMAL;
+    wcscpy_s(cfi.FaceName, L"MS Gothic");
+    SetCurrentConsoleFontEx(GetStdHandle(STD_OUTPUT_HANDLE), FALSE, &cfi);
 }
 
-// wstringからUTF-8に変換する関数
+// wstringからUTF-8に変換する関数（改良版）
 std::string WStringToUTF8(const std::wstring& wstr) {
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+    if (wstr.empty()) return std::string();
+
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, nullptr, nullptr);
     std::string utf8_str(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &utf8_str[0], size_needed, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &utf8_str[0], size_needed, nullptr, nullptr);
+
+    // null終端文字を削除
+    if (!utf8_str.empty() && utf8_str.back() == '\0') {
+        utf8_str.pop_back();
+    }
+
     return utf8_str;
 }
 
-// UTF-8からwstringに変換する関数
+// UTF-8からwstringに変換する関数（改良版）
 std::wstring UTF8ToWString(const std::string& utf8Str) {
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), (int)utf8Str.size(), nullptr, 0);
+    if (utf8Str.empty()) return std::wstring();
+
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), -1, nullptr, 0);
     std::wstring wide_str(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), (int)utf8Str.size(), &wide_str[0], size_needed);
+    MultiByteToWideChar(CP_UTF8, 0, utf8Str.c_str(), -1, &wide_str[0], size_needed);
+
+    // null終端文字を削除
+    if (!wide_str.empty() && wide_str.back() == L'\0') {
+        wide_str.pop_back();
+    }
+
     return wide_str;
 }
 
 void ReceiveMessages(SOCKET socket) {
     char buffer[BUFFER_SIZE];
     while (true) {
-        int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
+        int bytesReceived = recv(socket, buffer, BUFFER_SIZE - 1, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            std::string utf8Message(buffer);
-            std::wcout << UTF8ToWString(utf8Message) << std::endl;
+            std::string utf8Message(buffer, bytesReceived);
+            std::wstring wMessage = UTF8ToWString(utf8Message);
+            std::wcout << wMessage << std::endl;
         }
         else if (bytesReceived == 0) {
             std::wcout << L"接続が閉じられました。" << std::endl;
@@ -82,6 +114,7 @@ std::wstring GetLocalIPAddress() {
 }
 
 int main() {
+    // コンソールの設定を最初に行う
     SetUnicodeConsole();
 
     WSADATA wsaData;
@@ -89,6 +122,10 @@ int main() {
         std::wcout << L"Winsockの初期化に失敗しました。" << std::endl;
         return 1;
     }
+
+    // バッファをフラッシュするために同期を解除
+    std::wcout.sync_with_stdio(false);
+    std::wcin.sync_with_stdio(false);
 
     SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET) {
@@ -186,7 +223,8 @@ int main() {
         while (true) {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
-            std::string utf8Message = WStringToUTF8(message);
+            std::wstring fullMessage = username + L": " + message;
+            std::string utf8Message = WStringToUTF8(fullMessage);
             send(sock, utf8Message.c_str(), utf8Message.length(), 0);
         }
 
