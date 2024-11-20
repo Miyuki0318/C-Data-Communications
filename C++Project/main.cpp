@@ -7,27 +7,34 @@
 #include <io.h>
 #include <locale>
 #include <codecvt>
+#include <Windows.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
 const int BUFFER_SIZE = 4096;
 
-void SetUTF8Console() {
-    _setmode(_fileno(stdin), _O_U8TEXT);
-    _setmode(_fileno(stdout), _O_U8TEXT);
-    _setmode(_fileno(stderr), _O_U8TEXT);
+// コンソールの出力をShift-JISに設定
+void SetShiftJISConsole() {
+    SetConsoleOutputCP(932);  // コンソールの出力をShift-JISに設定
+    _setmode(_fileno(stdout), _O_U8TEXT);  // 標準出力をShift-JISに設定
+    _setmode(_fileno(stderr), _O_U8TEXT);  // 標準エラー出力をShift-JISに設定
+    _setmode(_fileno(stdin), _O_U8TEXT);  // 標準入力をShift-JISに設定
 }
 
-// UTF-8からwstringに変換する関数
-std::wstring UTF8ToWString(const std::string& utf8Str) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-    return converter.from_bytes(utf8Str);
+// Shift-JISからwstringに変換する関数
+std::wstring SJISToWString(const std::string& sjisStr) {
+    int size_needed = MultiByteToWideChar(932, 0, sjisStr.c_str(), (int)sjisStr.size(), nullptr, 0);
+    std::wstring wide_str(size_needed, 0);
+    MultiByteToWideChar(932, 0, sjisStr.c_str(), (int)sjisStr.size(), &wide_str[0], size_needed);
+    return wide_str;
 }
 
-// wstringからUTF-8に変換する関数
-std::string WStringToUTF8(const std::wstring& wstr) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-    return converter.to_bytes(wstr);
+// wstringからShift-JISに変換する関数
+std::string WStringToSJI(const std::wstring& wstr) {
+    int size_needed = WideCharToMultiByte(932, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+    std::string sjis_str(size_needed, 0);
+    WideCharToMultiByte(932, 0, wstr.c_str(), (int)wstr.size(), &sjis_str[0], size_needed, nullptr, nullptr);
+    return sjis_str;
 }
 
 void ReceiveMessages(SOCKET socket) {
@@ -36,8 +43,8 @@ void ReceiveMessages(SOCKET socket) {
         int bytesReceived = recv(socket, buffer, BUFFER_SIZE, 0);
         if (bytesReceived > 0) {
             buffer[bytesReceived] = '\0';
-            std::string utf8Message(buffer);
-            std::wcout << UTF8ToWString(utf8Message) << std::endl;
+            std::string sjisMessage(buffer);
+            std::wcout << SJISToWString(sjisMessage) << std::endl;
         }
         else if (bytesReceived == 0) {
             std::wcout << L"接続が閉じられました。" << std::endl;
@@ -75,7 +82,7 @@ std::wstring GetLocalIPAddress() {
 }
 
 int main() {
-    SetUTF8Console();
+    SetShiftJISConsole();
 
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -144,8 +151,8 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WStringToUTF8(fullMessage);
-            send(clientSocket, utf8Message.c_str(), utf8Message.length(), 0);
+            std::string sjisMessage = WStringToSJI(fullMessage);
+            send(clientSocket, sjisMessage.c_str(), sjisMessage.length(), 0);
         }
 
         closesocket(clientSocket);
@@ -171,7 +178,7 @@ int main() {
             return 1;
         }
 
-        std::wcout << L"ピアに接続しました。" << std::endl;
+        std::wcout << L"接続が確立されました。" << std::endl;
 
         std::thread(ReceiveMessages, sock).detach();
 
@@ -180,15 +187,16 @@ int main() {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
             std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WStringToUTF8(fullMessage);
-            send(sock, utf8Message.c_str(), utf8Message.length(), 0);
+            std::string sjisMessage = WStringToSJI(fullMessage);
+            send(sock, sjisMessage.c_str(), sjisMessage.length(), 0);
         }
+
+        closesocket(sock);
     }
     else {
         std::wcout << L"無効な選択です。" << std::endl;
     }
 
-    closesocket(sock);
     WSACleanup();
     return 0;
 }
