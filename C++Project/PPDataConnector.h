@@ -41,7 +41,7 @@ public:
     SOCKET GetSocket() const;
 
     // ホストのIPアドレスを取得する関数
-    wstring GetHostIP() const;
+    static wstring GetHostIP();
 
     // ソケット通信を開始する関数
     void Start() const;

@@ -134,7 +134,7 @@ SOCKET PPDataConnector::GetSocket() const
 }
 
 // ホストのIPアドレスを取得するメソッド
-wstring PPDataConnector::GetHostIP() const
+wstring PPDataConnector::GetHostIP()
 {
     // Winsockの初期化
     WSADATA wsaData;
