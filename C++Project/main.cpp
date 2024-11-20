@@ -68,6 +68,13 @@ std::wstring UTF8ToWString(const std::string& utf8Str) {
     return wide_str;
 }
 
+// メッセージ送信関数（新規追加）
+void SendMessage(SOCKET sock, const std::wstring& username, const std::wstring& message) {
+    std::wstring fullMessage = username + L": " + message;
+    std::string utf8Message = WStringToUTF8(fullMessage);
+    send(sock, utf8Message.c_str(), utf8Message.length(), 0);
+}
+
 void ReceiveMessages(SOCKET socket) {
     char buffer[BUFFER_SIZE];
     while (true) {
@@ -187,9 +194,7 @@ int main() {
         while (true) {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
-            std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WStringToUTF8(fullMessage);
-            send(clientSocket, utf8Message.c_str(), utf8Message.length(), 0);
+            SendMessage(clientSocket, username, message);  // 送信関数を使用
         }
 
         closesocket(clientSocket);
@@ -204,9 +209,9 @@ int main() {
 
         sockaddr_in serverAddr;
         serverAddr.sin_family = AF_INET;
-        std::string narrow_ip(ip.begin(), ip.end());
+        std::string narrow_ip = WStringToUTF8(ip);  // 修正: 適切な文字コード変換を使用
         inet_pton(AF_INET, narrow_ip.c_str(), &serverAddr.sin_addr);
-        serverAddr.sin_port = htons(std::stoi(std::string(port.begin(), port.end())));
+        serverAddr.sin_port = htons(std::stoi(WStringToUTF8(port)));  // 修正: 適切な文字コード変換を使用
 
         if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
             std::wcout << L"接続に失敗しました。" << std::endl;
@@ -223,9 +228,7 @@ int main() {
         while (true) {
             std::getline(std::wcin, message);
             if (message == L"exit") break;
-            std::wstring fullMessage = username + L": " + message;
-            std::string utf8Message = WStringToUTF8(fullMessage);
-            send(sock, utf8Message.c_str(), utf8Message.length(), 0);
+            SendMessage(sock, username, message);  // 送信関数を使用
         }
 
         closesocket(sock);
@@ -234,6 +237,7 @@ int main() {
         std::wcout << L"無効な選択です。" << std::endl;
     }
 
+    closesocket(sock);
     WSACleanup();
     return 0;
 }
