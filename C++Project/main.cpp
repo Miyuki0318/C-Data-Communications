@@ -171,9 +171,10 @@ int main() {
         std::getline(std::wcin, port);
 
         sockaddr_in serverAddr;
-        std::string narrow_ip = WideToUTF8(ip);
+        serverAddr.sin_family = AF_INET;
+        std::string narrow_ip(ip.begin(), ip.end());
         inet_pton(AF_INET, narrow_ip.c_str(), &serverAddr.sin_addr);
-        serverAddr.sin_port = htons(std::stoi(WideToUTF8(port)));
+        serverAddr.sin_port = htons(std::stoi(std::string(port.begin(), port.end())));
 
         if (connect(sock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
             std::wcout << L"Ú‘±‚ÉŽ¸”s‚µ‚Ü‚µ‚½B" << std::endl;
