@@ -165,10 +165,10 @@ void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
 // クライアントとしてサーバーに接続
 void PPDataConnecter::ConnectToServer(SOCKET& clientSocket, const wstring& username)
 {
-    string id;
+    wstring id;
     wcout << L"接続先のサーバーIDを入力してください: ";
-    getline(cin, id);
-    auto decodeID = DecodeAndReverseIPPort(id);
+    getline(wcin, id);
+    auto decodeID = DecodeAndReverseIPPort(WStringToUTF8(id));
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
