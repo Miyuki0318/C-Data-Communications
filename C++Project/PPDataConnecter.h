@@ -41,7 +41,12 @@ public:
     static void ReceivePPMessages(SOCKET socket);
 
     // ローカルIPアドレスを取得する静的メソッド
-    static wstring GetLocalIPAddress();
+    static string GetLocalIPAddress();
+    static wstring GetLocalIPAddressW();
+
+    static string EncodeAndReverseIPPort(const string& ipAddress, unsigned short port);
+
+    static pair<string, unsigned short> DecodeAndReverseIPPort(const string& encodedReversed);
 
 private:
     // サーバーソケットをバインドしてリッスン状態にする

@@ -6,7 +6,11 @@
 #include <io.h>
 #include <locale>
 #include <codecvt>
+#include <sstream>
+#include <iomanip>
+#include <algorithm>
 #include <Windows.h>
+#include <ws2tcpip.h>
 
 #undef max  // 型の最大用のmaxを使う為のundef
 #pragma comment(lib, "Ws2_32.lib") // Winsock2ライブラリのリンク指定
@@ -64,8 +68,9 @@ PPDataConnecter::~PPDataConnecter()
 void PPDataConnecter::InitializeWinsock()
 {
     WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        throw std::runtime_error("Winsockの初期化に失敗しました。");
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) 
+    {
+        throw runtime_error("Winsockの初期化に失敗しました。");
     }
 }
 
@@ -137,8 +142,7 @@ void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
     sockaddr_in serverAddr;
     int addrLen = sizeof(serverAddr);
     getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen); // バインドされたポート番号を取得
-    wcout << L"あなたのIPアドレス: " << GetLocalIPAddress() << endl;
-    wcout << L"ポート番号: " << ntohs(serverAddr.sin_port) << endl;
+    wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
     wcout << L"接続を待っています..." << endl;
 
     SOCKET clientSocket;
@@ -161,16 +165,15 @@ void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
 // クライアントとしてサーバーに接続
 void PPDataConnecter::ConnectToServer(SOCKET& clientSocket, const wstring& username)
 {
-    wstring ip, port;
-    wcout << L"接続先のIPアドレスを入力してください: ";
-    getline(wcin, ip);
-    wcout << L"接続先のポート番号を入力してください: ";
-    getline(wcin, port);
+    string id;
+    wcout << L"接続先のサーバーIDを入力してください: ";
+    getline(cin, id);
+    auto decodeID = DecodeAndReverseIPPort(id);
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
-    inet_pton(AF_INET, WStringToUTF8(ip).c_str(), &serverAddr.sin_addr); // IPアドレスをバイナリ形式に変換
-    serverAddr.sin_port = htons(stoi(WStringToUTF8(port)));
+    inet_pton(AF_INET, decodeID.first.c_str(), &serverAddr.sin_addr); // IPアドレスをバイナリ形式に変換
+    serverAddr.sin_port = htons(decodeID.second);
 
     if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
     {
@@ -224,7 +227,7 @@ void PPDataConnecter::ReceivePPMessages(SOCKET socket)
 }
 
 // ローカルIPアドレスを取得
-wstring PPDataConnecter::GetLocalIPAddress()
+string PPDataConnecter::GetLocalIPAddress()
 {
     char hostName[256];
     gethostname(hostName, sizeof(hostName));
@@ -237,5 +240,77 @@ wstring PPDataConnecter::GetLocalIPAddress()
     inet_ntop(AF_INET, &(sockaddr_ipv4->sin_addr), ipAddress, INET_ADDRSTRLEN);
 
     freeaddrinfo(result);
-    return UTF8ToWString(string(ipAddress));
+    return string(ipAddress);
+}
+
+// ローカルIPアドレスを取得
+wstring PPDataConnecter::GetLocalIPAddressW()
+{
+    return UTF8ToWString(GetLocalIPAddress());
+}
+
+// エンコードして反転する関数
+string PPDataConnecter::EncodeAndReverseIPPort(const string& ipAddress, unsigned short port)
+{
+    // inet_ptonを使用してIPアドレスをバイナリ形式に変換
+    struct sockaddr_in sa;
+    if (inet_pton(AF_INET, ipAddress.c_str(), &(sa.sin_addr)) != 1) 
+    {
+        throw invalid_argument("Invalid IP address.");
+    }
+
+    // バイナリ形式から16進数に変換
+    unsigned long ip = sa.sin_addr.s_addr;
+    ostringstream ipHexStream;
+    ipHexStream << uppercase << hex << setw(8) << setfill('0') << ntohl(ip);
+    string ipHex = ipHexStream.str();
+
+    // ポート番号を16進数に変換
+    ostringstream portHexStream;
+    portHexStream << uppercase << hex << setw(4) << setfill('0') << port;
+    string portHex = portHexStream.str();
+
+    // IPとポートを結合
+    string combined = ipHex + "-" + portHex;
+
+    // 文字列を反転
+    reverse(combined.begin(), combined.end());
+
+    return combined;
+}
+
+// 反転してデコードする関数
+pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const string& encodedReversed)
+{
+    // 文字列を反転
+    string combined = encodedReversed;
+    reverse(combined.begin(), combined.end());
+
+    // IPとポートを分離
+    size_t dashPos = combined.find('-');
+    if (dashPos == string::npos) 
+    {
+        throw invalid_argument("Invalid encoded string format.");
+    }
+
+    string ipHex = combined.substr(0, dashPos);
+    string portHex = combined.substr(dashPos + 1);
+
+    // IPを復元
+    unsigned long ipNum = stoul(ipHex, nullptr, 16);
+    ipNum = htonl(ipNum); // ネットワークバイトオーダーに変換
+
+    // inet_ntop を使用してバイナリから文字列IPアドレスに変換
+    char ipAddress[INET_ADDRSTRLEN];
+    struct in_addr ipAddr;
+    ipAddr.s_addr = ipNum;
+    if (inet_ntop(AF_INET, &ipAddr, ipAddress, INET_ADDRSTRLEN) == nullptr) 
+    {
+        throw invalid_argument("Invalid IP address format.");
+    }
+
+    // ポートを復元
+    unsigned short port = static_cast<unsigned short>(stoul(portHex, nullptr, 16));
+
+    return { ipAddress, port };
 }
