@@ -8,12 +8,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="PPDataConnector.cpp">
+    <ClCompile Include="PPDataConnecter.cpp">
       <Filter>PPDataConnecter</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="PPDataConnector.h">
+    <ClInclude Include="PPDataConnecter.h">
       <Filter>PPDataConnecter</Filter>
     </ClInclude>
   </ItemGroup>
