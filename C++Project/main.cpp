@@ -33,12 +33,12 @@ int main()
         // サーバーモードの場合
         if (mode == L"Y" || mode == L"y")
         {
-            connecter.StartServer(socket, username); // サーバーを起動
+            connecter.StartFileTransServer(socket, username); // サーバーを起動
         }
         // クライアントモードの場合
         else if (mode == L"N" || mode == L"n")
         {
-            connecter.ConnectToServer(socket, username); // サーバーに接続
+            connecter.ConnectToFileTransServer(socket, username); // サーバーに接続
         }
         else
         {
