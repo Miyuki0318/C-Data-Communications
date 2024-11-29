@@ -76,6 +76,9 @@ private:
 
     // ファイルから文字列を取得する
     static void ReadString(SOCKET& socket, wstring& str);
+
+    // logフォルダ作成関数
+    static void CreateLogDirectoryIfNotExist();
 };
 
 #endif

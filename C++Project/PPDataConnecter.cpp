@@ -321,6 +321,7 @@ void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
     ReadString(clientSocket, receivedFileContent);
 
     // 受信したファイルの内容をログに保存
+    CreateLogDirectoryIfNotExist();
     string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
     ofstream outFile(filePath, ios::out);
     outFile << WStringToUTF8(receivedFileContent);
@@ -451,4 +452,18 @@ void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
     buffer[length] = '\0';  // 終端文字を追加
     str = UTF8ToWString(buffer);  // UTF-8からwstringに変換
     delete[] buffer;
+}
+
+void PPDataConnecter::CreateLogDirectoryIfNotExist()
+{
+    string dirPath = "./log";
+
+    // ログ用フォルダが存在するか確認
+    DWORD dwAttrib = GetFileAttributesA(dirPath.c_str());
+
+    // フォルダが存在しない場合、作成
+    if (dwAttrib == INVALID_FILE_ATTRIBUTES || !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
+    {
+        CreateDirectoryA(dirPath.c_str(), NULL);
+    }
 }
