@@ -311,7 +311,7 @@ void PPDataConnecter::SendFile(SOCKET& clientSocket, const wstring& fileName, co
     wcout << L"ファイルが送信されました。" << endl;
 }
 
-void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, string& receivedFile)
+void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
 {
     // サーバーからファイルの内容を受信
     wstring receivedFileName;
@@ -326,7 +326,7 @@ void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, string& receivedFile)
     outFile << WStringToUTF8(receivedFileContent);
     outFile.close();
 
-    receivedFile = WStringToUTF8(receivedFileContent);  // 受信した内容を表示用に格納
+    receivedFile = receivedFileContent;  // 受信した内容を表示用に格納
 }
 
 // ローカルIPアドレスを取得

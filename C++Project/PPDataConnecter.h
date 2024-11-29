@@ -51,7 +51,7 @@ public:
     static void SendFile(SOCKET& socket, const wstring& filename, const wstring& fileContent);
     
     // ファイルを受信する静的メソッド
-    static void ReceiveFile(SOCKET& clientSocket, string& receivedFile);
+    static void ReceiveFile(SOCKET& clientSocket, wstring& receivedFile);
 
     // ローカルIPアドレスを取得する静的メソッド
     static string GetLocalIPAddress();
@@ -72,10 +72,10 @@ private:
     void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
 
     // 文字列をファイルに保存する
-    void SaveString(SOCKET& socket, const wstring& str);
+    static void SaveString(SOCKET& socket, const wstring& str);
 
     // ファイルから文字列を取得する
-    void ReadString(SOCKET& socket, wstring& str);
+    static void ReadString(SOCKET& socket, wstring& str);
 };
 
 #endif
