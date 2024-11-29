@@ -208,6 +208,9 @@ void PPDataConnecter::StartFileTransServer(SOCKET& serverSocket, const wstring& 
 
     wcout << L"接続が確立されました。" << endl;
 
+    // logフォルダの初期化
+    CreateLogDirectoryIfNotExist();
+
     // ファイルの受信
     wstring fileName;
     wcout << L"送信するファイルのファイル名を入力してください: ";
@@ -249,6 +252,9 @@ void PPDataConnecter::ConnectToFileTransServer(SOCKET& clientSocket, const wstri
 
     wcout << L"接続しました。" << endl;
 
+    // logフォルダの初期化
+    CreateLogDirectoryIfNotExist();
+
     // ファイルの送信
     wstring fileName;
     wcout << L"送信するファイルのファイル名を入力してください: ";
@@ -276,9 +282,9 @@ void PPDataConnecter::SendPPMessage(SOCKET sock, const wstring& username, const 
     string utf8Message = WStringToUTF8(fullMessage);
     
     // 長さチェック
-    if (utf8Message.length() > static_cast<size_t>(std::numeric_limits<int>::max())) 
+    if (utf8Message.length() > static_cast<size_t>(numeric_limits<int>::max())) 
     {
-        throw std::runtime_error("送信メッセージが大きすぎます。");
+        throw runtime_error("送信メッセージが大きすぎます。");
     }
 
     send(sock, utf8Message.c_str(), static_cast<int>(utf8Message.length()), 0);
@@ -321,7 +327,6 @@ void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
     ReadString(clientSocket, receivedFileContent);
 
     // 受信したファイルの内容をログに保存
-    CreateLogDirectoryIfNotExist();
     string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
     ofstream outFile(filePath, ios::out);
     outFile << WStringToUTF8(receivedFileContent);
@@ -456,14 +461,46 @@ void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
 
 void PPDataConnecter::CreateLogDirectoryIfNotExist()
 {
-    string dirPath = "./log";
+    // logフォルダのパス
+    const wstring logDirPath = L"./log";
 
-    // ログ用フォルダが存在するか確認
-    DWORD dwAttrib = GetFileAttributesA(dirPath.c_str());
-
-    // フォルダが存在しない場合、作成
-    if (dwAttrib == INVALID_FILE_ATTRIBUTES || !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
+    // logフォルダが存在するか確認
+    DWORD ftyp = GetFileAttributes(logDirPath.c_str());
+    if (ftyp == INVALID_FILE_ATTRIBUTES) 
     {
-        CreateDirectoryA(dirPath.c_str(), NULL);
+        // フォルダが存在しない場合は作成する
+        CreateDirectory(logDirPath.c_str(), NULL);
     }
+    else if (!(ftyp & FILE_ATTRIBUTE_DIRECTORY)) 
+    {
+        // フォルダがファイルだった場合、何もせず戻る
+        return;
+    }
+
+    // logフォルダ内のファイルを削除
+    WIN32_FIND_DATA findFileData;
+    HANDLE hFind = FindFirstFile((logDirPath + L"/*").c_str(), &findFileData);
+
+    if (hFind == INVALID_HANDLE_VALUE) 
+    {
+        return; // logフォルダ内のファイルを読み取れない場合、何もせず戻る
+    }
+
+    do 
+    {
+        const wstring fileName = findFileData.cFileName;
+
+        // "." または ".." は無視
+        if (fileName == L"." || fileName == L"..")
+            continue;
+
+        // ファイルのフルパス
+        string filePath = WStringToUTF8(logDirPath + L"/" + fileName);
+
+        // ファイルを削除
+        DeleteFileA(filePath.c_str());
+
+    } while (FindNextFile(hFind, &findFileData) != 0);
+
+    FindClose(hFind);
 }
