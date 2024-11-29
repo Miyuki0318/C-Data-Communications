@@ -12,10 +12,6 @@ using namespace std;
 string WStringToUTF8(const wstring& wstr); // wstringをUTF-8形式のstringに変換
 wstring UTF8ToWString(const string& utf8Str); // UTF-8形式のstringをwstringに変換
 
-// ストリングをファイル化するユーティリティ関数
-void SaveString(ofstream& outFile, const string& str);
-void ReadString(ifstream& inFile, string& str);
-
 // PPDataConnecterクラスは、データ通信やソケット管理を行う
 class PPDataConnecter
 {
@@ -55,7 +51,7 @@ public:
     static void SendFile(SOCKET& socket, const wstring& filename, const wstring& fileContent);
     
     // ファイルを受信する静的メソッド
-    static bool ReceiveFile(SOCKET& socket, wstring& fileContent);
+    static void ReceiveFile(SOCKET& clientSocket, string& receivedFile);
 
     // ローカルIPアドレスを取得する静的メソッド
     static string GetLocalIPAddress();
@@ -74,6 +70,12 @@ private:
 
     // クライアントの接続を受け入れる
     void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
+
+    // 文字列をファイルに保存する
+    void SaveString(SOCKET& socket, const wstring& str);
+
+    // ファイルから文字列を取得する
+    void ReadString(SOCKET& socket, wstring& str);
 };
 
 #endif

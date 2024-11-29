@@ -55,20 +55,6 @@ wstring UTF8ToWString(const string& utf8Str)
     return wide_str;
 }
 
-void SaveString(ofstream& outFile, const string& str) 
-{
-    size_t length = str.size();
-    outFile.write(reinterpret_cast<const char*>(&length), sizeof(length));
-    outFile.write(str.data(), length);
-}
-
-void ReadString(ifstream& inFile, string& str) {
-    size_t length;
-    inFile.read(reinterpret_cast<char*>(&length), sizeof(length));
-    str.resize(length);
-    inFile.read(&str[0], length);
-}
-
 // コンストラクタ：特に初期化は行わない
 PPDataConnecter::PPDataConnecter() {}
 
@@ -208,6 +194,7 @@ void PPDataConnecter::ConnectToServer(SOCKET& clientSocket, const wstring& usern
 
 void PPDataConnecter::StartFileTransServer(SOCKET& serverSocket, const wstring& username)
 {
+    // サーバーを開始してクライアントからの接続を待つ
     BindAndListen(serverSocket);
 
     sockaddr_in serverAddr;
@@ -221,27 +208,24 @@ void PPDataConnecter::StartFileTransServer(SOCKET& serverSocket, const wstring& 
 
     wcout << L"接続が確立されました。" << endl;
 
-    // 送信ファイルの処理
-    wstring filename;
-    wcout << L"送信するファイルの名前を入力してください: ";
-    getline(wcin, filename);
+    // ファイルの受信
+    wstring fileName;
+    wcout << L"送信するファイルのファイル名を入力してください: ";
+    getline(wcin, fileName);
 
-    // ファイル内容の入力
     wstring fileContent;
     wcout << L"送信するファイルの内容を入力してください: ";
     getline(wcin, fileContent);
 
-    // ファイル送信
-    SendFile(clientSocket, filename, fileContent);
+    // ファイルの送信
+    SendFile(clientSocket, fileName, fileContent);
 
-    wcout << L"ファイル送信完了。" << endl;
+    // ファイル受信を待機
+    wstring receivedFile;
+    ReceiveFile(clientSocket, receivedFile);
 
-    // 受信の待機
-    wstring receivedFileContent;
-    if (ReceiveFile(clientSocket, receivedFileContent))
-    {
-        wcout << L"受信したファイル内容: " << receivedFileContent << endl;
-    }
+    // ログの表示
+    wcout << L"受信したファイルの内容: " << receivedFile << endl;
 
     closesocket(clientSocket);
 }
@@ -265,27 +249,22 @@ void PPDataConnecter::ConnectToFileTransServer(SOCKET& clientSocket, const wstri
 
     wcout << L"接続しました。" << endl;
 
-    // 送信ファイルの処理
-    wstring filename;
-    wcout << L"送信するファイルの名前を入力してください: ";
-    getline(wcin, filename);
+    // ファイルの送信
+    wstring fileName;
+    wcout << L"送信するファイルのファイル名を入力してください: ";
+    getline(wcin, fileName);
 
-    // ファイル内容の入力
     wstring fileContent;
     wcout << L"送信するファイルの内容を入力してください: ";
     getline(wcin, fileContent);
 
-    // ファイル送信
-    SendFile(clientSocket, filename, fileContent);
+    SendFile(clientSocket, fileName, fileContent);
 
-    wcout << L"ファイル送信完了。" << endl;
+    // ファイル受信
+    wstring receivedFile;
+    ReceiveFile(clientSocket, receivedFile);
 
-    // 受信の待機
-    wstring receivedFileContent;
-    if (ReceiveFile(clientSocket, receivedFileContent))
-    {
-        wcout << L"受信したファイル内容: " << receivedFileContent << endl;
-    }
+    wcout << L"受信したファイルの内容: " << receivedFile << endl;
 
     closesocket(clientSocket);
 }
@@ -324,43 +303,30 @@ void PPDataConnecter::ReceivePPMessages(SOCKET socket)
     }
 }
 
-void PPDataConnecter::SendFile(SOCKET& socket, const wstring& filename, const wstring& fileContent)
+void PPDataConnecter::SendFile(SOCKET& clientSocket, const wstring& fileName, const wstring& fileContent)
 {
-    size_t fileNameLength = filename.size();
-    size_t fileContentLength = fileContent.size();
-
-    // ファイル名の長さと内容
-    send(socket, reinterpret_cast<const char*>(&fileNameLength), sizeof(fileNameLength), 0);
-    send(socket, reinterpret_cast<const char*>(filename.c_str()), fileNameLength * sizeof(wchar_t), 0);
-
-    // ファイル内容の長さと内容
-    send(socket, reinterpret_cast<const char*>(&fileContentLength), sizeof(fileContentLength), 0);
-    send(socket, reinterpret_cast<const char*>(fileContent.c_str()), fileContentLength * sizeof(wchar_t), 0);
+    // ファイル名と内容を送信
+    SaveString(clientSocket, fileName);
+    SaveString(clientSocket, fileContent);
+    wcout << L"ファイルが送信されました。" << endl;
 }
 
-bool PPDataConnecter::ReceiveFile(SOCKET& socket, wstring& fileContent)
+void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, string& receivedFile)
 {
-    size_t fileNameLength;
-    size_t fileContentLength;
+    // サーバーからファイルの内容を受信
+    wstring receivedFileName;
+    ReadString(clientSocket, receivedFileName);
 
-    // ファイル名の長さを受信
-    int result = recv(socket, reinterpret_cast<char*>(&fileNameLength), sizeof(fileNameLength), 0);
-    if (result <= 0) return false;
+    wstring receivedFileContent;
+    ReadString(clientSocket, receivedFileContent);
 
-    wstring filename;
-    filename.resize(fileNameLength);
-    result = recv(socket, reinterpret_cast<char*>(&filename[0]), fileNameLength * sizeof(wchar_t), 0);
-    if (result <= 0) return false;
+    // 受信したファイルの内容をログに保存
+    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
+    ofstream outFile(filePath, ios::out);
+    outFile << WStringToUTF8(receivedFileContent);
+    outFile.close();
 
-    // ファイル内容の長さを受信
-    result = recv(socket, reinterpret_cast<char*>(&fileContentLength), sizeof(fileContentLength), 0);
-    if (result <= 0) return false;
-
-    fileContent.resize(fileContentLength);
-    result = recv(socket, reinterpret_cast<char*>(&fileContent[0]), fileContentLength * sizeof(wchar_t), 0);
-    if (result <= 0) return false;
-
-    return true;
+    receivedFile = WStringToUTF8(receivedFileContent);  // 受信した内容を表示用に格納
 }
 
 // ローカルIPアドレスを取得
@@ -450,4 +416,39 @@ pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const strin
     unsigned short port = static_cast<unsigned short>(stoul(portHex, nullptr, 16));
 
     return { ipAddress, port };
+}
+
+void PPDataConnecter::SaveString(SOCKET& socket, const wstring& str)
+{
+    // 文字列の長さを送信 (2バイトの整数として送信)
+    uint16_t length = static_cast<uint16_t>(str.length());
+    send(socket, reinterpret_cast<const char*>(&length), sizeof(length), 0);
+
+    // 文字列データを送信 (UTF-8にエンコード)
+    string utf8Str = WStringToUTF8(str);
+    send(socket, utf8Str.c_str(), static_cast<int>(utf8Str.length()), 0);
+}
+
+void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
+{
+    // 文字列の長さを受信 (2バイトの整数として受信)
+    uint16_t length = 0;
+    int result = recv(socket, reinterpret_cast<char*>(&length), sizeof(length), 0);
+    if (result == SOCKET_ERROR)
+    {
+        throw runtime_error("データの受信に失敗しました。");
+    }
+
+    // 受信した長さに基づいて文字列を受信
+    char* buffer = new char[length + 1];  // 文字列長 + 終端文字
+    result = recv(socket, buffer, length, 0);
+    if (result == SOCKET_ERROR)
+    {
+        delete[] buffer;
+        throw runtime_error("文字列の受信に失敗しました。");
+    }
+
+    buffer[length] = '\0';  // 終端文字を追加
+    str = UTF8ToWString(buffer);  // UTF-8からwstringに変換
+    delete[] buffer;
 }
