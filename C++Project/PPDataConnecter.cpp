@@ -327,7 +327,7 @@ void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
     ReadString(clientSocket, receivedFileContent);
 
     // 受信したファイルの内容をログに保存
-    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
+    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".bin";
     ofstream outFile(filePath, ios::out);
     outFile << WStringToUTF8(receivedFileContent);
     outFile.close();
