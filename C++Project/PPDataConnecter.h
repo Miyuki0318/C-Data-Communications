@@ -9,8 +9,8 @@
 using namespace std;
 
 // wstringとUTF-8の相互変換を行うユーティリティ関数
-static string WStringToUTF8(const wstring& wstr); // wstringをUTF-8形式のstringに変換
-static wstring UTF8ToWString(const string& utf8Str); // UTF-8形式のstringをwstringに変換
+string WStringToUTF8(const wstring& wstr); // wstringをUTF-8形式のstringに変換
+wstring UTF8ToWString(const string& utf8Str); // UTF-8形式のstringをwstringに変換
 
 // PPDataConnecterクラスは、データ通信やソケット管理を行う
 class PPDataConnecter

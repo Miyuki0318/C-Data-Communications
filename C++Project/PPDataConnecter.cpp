@@ -84,7 +84,7 @@ void PPDataConnecter::SetConsoleToUnicode()
     _setmode(_fileno(stderr), _O_U8TEXT);
 
     // コンソールフォントをMSゴシックに設定
-    CONSOLE_FONT_INFOEX cfi;
+    CONSOLE_FONT_INFOEX cfi = {};
     cfi.cbSize = sizeof(cfi);
     cfi.nFont = 0;
     cfi.dwFontSize.X = 0;
@@ -139,7 +139,7 @@ void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
 {
     BindAndListen(serverSocket);
 
-    sockaddr_in serverAddr;
+    sockaddr_in serverAddr = {};
     int addrLen = sizeof(serverAddr);
     getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen); // バインドされたポート番号を取得
     wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
@@ -197,7 +197,7 @@ void PPDataConnecter::StartFileTransServer(SOCKET& serverSocket, const wstring& 
     // サーバーを開始してクライアントからの接続を待つ
     BindAndListen(serverSocket);
 
-    sockaddr_in serverAddr;
+    sockaddr_in serverAddr = {};
     int addrLen = sizeof(serverAddr);
     getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen); // バインドされたポート番号を取得
     wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
@@ -327,7 +327,7 @@ void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
     ReadString(clientSocket, receivedFileContent);
 
     // 受信したファイルの内容をログに保存
-    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".bin";
+    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
     ofstream outFile(filePath, ios::out);
     outFile << WStringToUTF8(receivedFileContent);
     outFile.close();
@@ -362,7 +362,7 @@ wstring PPDataConnecter::GetLocalIPAddressW()
 string PPDataConnecter::EncodeAndReverseIPPort(const string& ipAddress, unsigned short port)
 {
     // inet_ptonを使用してIPアドレスをバイナリ形式に変換
-    struct sockaddr_in sa;
+    sockaddr_in sa = {};
     if (inet_pton(AF_INET, ipAddress.c_str(), &(sa.sin_addr)) != 1) 
     {
         throw invalid_argument("Invalid IP address.");
@@ -411,7 +411,7 @@ pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const strin
 
     // inet_ntop を使用してバイナリから文字列IPアドレスに変換
     char ipAddress[INET_ADDRSTRLEN];
-    struct in_addr ipAddr;
+    in_addr ipAddr = {};
     ipAddr.s_addr = ipNum;
     if (inet_ntop(AF_INET, &ipAddr, ipAddress, INET_ADDRSTRLEN) == nullptr) 
     {
@@ -426,37 +426,27 @@ pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const strin
 
 void PPDataConnecter::SaveString(SOCKET& socket, const wstring& str)
 {
-    // 文字列の長さを送信 (2バイトの整数として送信)
-    uint16_t length = static_cast<uint16_t>(str.length());
-    send(socket, reinterpret_cast<const char*>(&length), sizeof(length), 0);
+    string utf8Message = WStringToUTF8(str);
 
-    // 文字列データを送信 (UTF-8にエンコード)
-    string utf8Str = WStringToUTF8(str);
-    send(socket, utf8Str.c_str(), static_cast<int>(utf8Str.length()), 0);
+    // 長さチェック
+    if (utf8Message.length() > static_cast<size_t>(numeric_limits<int>::max()))
+    {
+        throw runtime_error("送信メッセージが大きすぎます。");
+    }
+
+    send(socket, utf8Message.c_str(), static_cast<int>(utf8Message.length()), 0);
 }
 
 void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
 {
-    // 文字列の長さを受信 (2バイトの整数として受信)
-    uint16_t length = 0;
-    int result = recv(socket, reinterpret_cast<char*>(&length), sizeof(length), 0);
-    if (result == SOCKET_ERROR)
-    {
-        throw runtime_error("データの受信に失敗しました。");
-    }
+    char buffer[BUFFER_SIZE];
 
-    // 受信した長さに基づいて文字列を受信
-    char* buffer = new char[length + 1];  // 文字列長 + 終端文字
-    result = recv(socket, buffer, length, 0);
-    if (result == SOCKET_ERROR)
+    int bytesReceived = recv(socket, buffer, BUFFER_SIZE - 1, 0);
+    if (bytesReceived > 0)
     {
-        delete[] buffer;
-        throw runtime_error("文字列の受信に失敗しました。");
+        buffer[bytesReceived] = '\0'; // 受信データをnull終端
+        str = UTF8ToWString(string(buffer, bytesReceived));
     }
-
-    buffer[length] = '\0';  // 終端文字を追加
-    str = UTF8ToWString(buffer);  // UTF-8からwstringに変換
-    delete[] buffer;
 }
 
 void PPDataConnecter::CreateLogDirectoryIfNotExist()
