@@ -75,7 +75,7 @@ private:
     static void SaveString(SOCKET& socket, const wstring& str);
 
     // ファイルから文字列を取得する
-    static void ReadString(SOCKET& socket, wstring& str);
+    static void ReadString(SOCKET& socket, string& str);
 
     // logフォルダ作成関数
     static void CreateLogDirectoryIfNotExist();

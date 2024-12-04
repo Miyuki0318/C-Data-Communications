@@ -320,19 +320,19 @@ void PPDataConnecter::SendFile(SOCKET& clientSocket, const wstring& fileName, co
 void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
 {
     // サーバーからファイルの内容を受信
-    wstring receivedFileName;
+    string receivedFileName;
     ReadString(clientSocket, receivedFileName);
 
-    wstring receivedFileContent;
+    string receivedFileContent;
     ReadString(clientSocket, receivedFileContent);
 
     // 受信したファイルの内容をログに保存
-    string filePath = "./log/" + WStringToUTF8(receivedFileName) + ".txt";
+    string filePath = "./log/" + receivedFileName + ".txt";
     ofstream outFile(filePath, ios::out);
-    outFile << WStringToUTF8(receivedFileContent);
+    outFile << receivedFileContent;
     outFile.close();
 
-    receivedFile = receivedFileContent;  // 受信した内容を表示用に格納
+    receivedFile = UTF8ToWString(receivedFileContent);  // 受信した内容を表示用に格納
 }
 
 // ローカルIPアドレスを取得
@@ -437,7 +437,7 @@ void PPDataConnecter::SaveString(SOCKET& socket, const wstring& str)
     send(socket, utf8Message.c_str(), static_cast<int>(utf8Message.length()), 0);
 }
 
-void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
+void PPDataConnecter::ReadString(SOCKET& socket, string& str)
 {
     char buffer[BUFFER_SIZE];
 
@@ -445,7 +445,7 @@ void PPDataConnecter::ReadString(SOCKET& socket, wstring& str)
     if (bytesReceived > 0)
     {
         buffer[bytesReceived] = '\0'; // 受信データをnull終端
-        str = UTF8ToWString(string(buffer, bytesReceived));
+        str = string(buffer, bytesReceived);
     }
 }
 
