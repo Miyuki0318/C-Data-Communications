@@ -12,6 +12,10 @@ using namespace std;
 string WStringToUTF8(const wstring& wstr); // wstringをUTF-8形式のstringに変換
 wstring UTF8ToWString(const string& utf8Str); // UTF-8形式のstringをwstringに変換
 
+// 10進数から64進数に変換する関数
+string ConvertToBase64(unsigned long number);
+unsigned long ConvertFromBase64(const string& base64Str);
+
 // PPDataConnecterクラスは、データ通信やソケット管理を行う
 class PPDataConnecter
 {
@@ -46,7 +50,7 @@ public:
 
     // メッセージを受信する静的メソッド
     static void ReceivePPMessages(SOCKET socket);
-    
+
     // ファイルを送信する静的メソッド
     static void SendFile(SOCKET& socket, const wstring& filename, const wstring& fileContent);
     

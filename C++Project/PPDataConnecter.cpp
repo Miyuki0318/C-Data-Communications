@@ -55,6 +55,40 @@ wstring UTF8ToWString(const string& utf8Str)
     return wide_str;
 }
 
+// 10進数から64進数に変換する関数
+string ConvertToBase64(unsigned long number) {
+    const string base64chars =
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
+
+    string result;
+    do {
+        result = base64chars[number % 64] + result;
+        number /= 64;
+    } while (number > 0);
+
+    return result;
+}
+
+// 64進数から10進数に変換する関数
+unsigned long ConvertFromBase64(const string& base64Str) {
+    const string base64chars =
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
+
+    unsigned long result = 0;
+    unsigned long base = 1;
+
+    for (int i = base64Str.length() - 1; i >= 0; --i) {
+        size_t pos = base64chars.find(base64Str[i]);
+        if (pos == string::npos) {
+            throw invalid_argument("Invalid base64 character.");
+        }
+        result += pos * base;
+        base *= 64;
+    }
+
+    return result;
+}
+
 // コンストラクタ：特に初期化は行わない
 PPDataConnecter::PPDataConnecter() {}
 
@@ -363,24 +397,24 @@ string PPDataConnecter::EncodeAndReverseIPPort(const string& ipAddress, unsigned
 {
     // inet_ptonを使用してIPアドレスをバイナリ形式に変換
     sockaddr_in sa = {};
-    if (inet_pton(AF_INET, ipAddress.c_str(), &(sa.sin_addr)) != 1) 
+    if (inet_pton(AF_INET, ipAddress.c_str(), &(sa.sin_addr)) != 1)
     {
         throw invalid_argument("Invalid IP address.");
     }
 
-    // バイナリ形式から16進数に変換
+    // バイナリ形式から64進数に変換
     unsigned long ip = sa.sin_addr.s_addr;
-    ostringstream ipHexStream;
-    ipHexStream << uppercase << hex << setw(8) << setfill('0') << ntohl(ip);
-    string ipHex = ipHexStream.str();
+    ostringstream ip64Stream;
+    ip64Stream << uppercase << ConvertToBase64(ntohl(ip));
+    string ip64 = ip64Stream.str();
 
-    // ポート番号を16進数に変換
-    ostringstream portHexStream;
-    portHexStream << uppercase << hex << setw(4) << setfill('0') << port;
-    string portHex = portHexStream.str();
+    // ポート番号を64進数に変換
+    ostringstream port64Stream;
+    port64Stream << uppercase << ConvertToBase64(port);
+    string port64 = port64Stream.str();
 
     // IPとポートを結合
-    string combined = ipHex + "-" + portHex;
+    string combined = ip64 + "-" + port64;
 
     // 文字列を反転
     reverse(combined.begin(), combined.end());
@@ -388,7 +422,6 @@ string PPDataConnecter::EncodeAndReverseIPPort(const string& ipAddress, unsigned
     return combined;
 }
 
-// 反転してデコードする関数
 pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const string& encodedReversed)
 {
     // 文字列を反転
@@ -397,29 +430,29 @@ pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const strin
 
     // IPとポートを分離
     size_t dashPos = combined.find('-');
-    if (dashPos == string::npos) 
+    if (dashPos == string::npos)
     {
         throw invalid_argument("Invalid encoded string format.");
     }
 
-    string ipHex = combined.substr(0, dashPos);
-    string portHex = combined.substr(dashPos + 1);
+    string ip64 = combined.substr(0, dashPos);
+    string port64 = combined.substr(dashPos + 1);
 
     // IPを復元
-    unsigned long ipNum = stoul(ipHex, nullptr, 16);
+    unsigned long ipNum = ConvertFromBase64(ip64);
     ipNum = htonl(ipNum); // ネットワークバイトオーダーに変換
 
     // inet_ntop を使用してバイナリから文字列IPアドレスに変換
     char ipAddress[INET_ADDRSTRLEN];
     in_addr ipAddr = {};
     ipAddr.s_addr = ipNum;
-    if (inet_ntop(AF_INET, &ipAddr, ipAddress, INET_ADDRSTRLEN) == nullptr) 
+    if (inet_ntop(AF_INET, &ipAddr, ipAddress, INET_ADDRSTRLEN) == nullptr)
     {
         throw invalid_argument("Invalid IP address format.");
     }
 
     // ポートを復元
-    unsigned short port = static_cast<unsigned short>(stoul(portHex, nullptr, 16));
+    unsigned short port = ConvertFromBase64(port64);
 
     return { ipAddress, port };
 }
