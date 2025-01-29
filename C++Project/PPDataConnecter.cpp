@@ -159,9 +159,6 @@ void PPDataConnecter::BindAndListen(SOCKET& serverSocket)
         throw runtime_error("ソケットの作成に失敗しました。");
     }
 
-    u_long mode = 1;
-    ioctlsocket(serverSocket, FIONBIO, &mode);
-
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
@@ -252,7 +249,7 @@ void PPDataConnecter::ConnectToServer()
             }
             catch (const exception& e)
             {
-                cerr << "クライアントエラー: " << e.what() << endl;
+                wcerr << L"クライアントエラー: " << e.what() << endl;
             }
         }
     );
@@ -261,16 +258,8 @@ void PPDataConnecter::ConnectToServer()
 // クライアント接続内部処理
 void PPDataConnecter::ConnectToServerInternal(SOCKET& clientSocket, const string& ip, int port)
 {
-    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (clientSocket == INVALID_SOCKET)
-    {
-        throw runtime_error("ソケットの作成に失敗しました。");
-    }
-
-    // ノンブロッキングモードを有効化
-    u_long mode = 1;
-    ioctlsocket(clientSocket, FIONBIO, &mode);
-
+    clientSocket = CreateSocket();
+    
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
     inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
@@ -278,11 +267,20 @@ void PPDataConnecter::ConnectToServerInternal(SOCKET& clientSocket, const string
 
     while (isConnecting)
     {
-        if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == 0)
-        {
-            break;
+        int result = connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+
+        if (result == 0) {
+            wcout << L"接続しました。" << endl;
+            isConnecting = false;
+            break; // 成功
         }
-        this_thread::sleep_for(chrono::milliseconds(500));
+
+        closesocket(clientSocket);
+        clientSocket = CreateSocket();  
+        sockaddr_in serverAddr = {};
+        serverAddr.sin_family = AF_INET;
+        inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
+        serverAddr.sin_port = htons(port);
     }
 
     if (!isConnecting) throw runtime_error("接続キャンセルされました。");
