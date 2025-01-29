@@ -236,10 +236,10 @@ void PPDataConnecter::ConnectToServer()
         {
             try
             {
-                string ipAndPort;
+                wstring ipAndPort;
                 wcout << L"接続先のサーバーIDを入力: ";
-                cin >> ipAndPort;
-                auto id = DecodeAndReverseIPPort(ipAndPort);
+                wcin >> ipAndPort;
+                auto id = DecodeAndReverseIPPort(WStringToUTF8(ipAndPort));
 
                 SOCKET clientSocket = INVALID_SOCKET;
                 ConnectToServerInternal(clientSocket, id.first, id.second);
