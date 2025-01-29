@@ -33,12 +33,12 @@ int main()
         // サーバーモードの場合
         if (mode == L"Y" || mode == L"y")
         {
-            connecter.StartServer(); // サーバーを起動
+            connecter.StartServerAsync(socket, username); // サーバーを起動
         }
         // クライアントモードの場合
         else if (mode == L"N" || mode == L"n")
         {
-            connecter.ConnectToServer(); // サーバーに接続
+            connecter.ConnectToServerAsync(socket, username); // サーバーに接続
         }
         else
         {
@@ -46,9 +46,26 @@ int main()
             wcout << L"無効な選択です。" << endl;
         }
 
-        while (connecter.isRunning || connecter.isConnecting)
+        BufferedData out;
+        BufferedData temp;
+        wstring message;
+
+        while (connecter.isConnected || connecter.isWaiting)
         {
-            if (!connecter.isRunning)
+            if (connecter.isWaiting) continue;
+
+            connecter.GetFromRecvBuffer(out);
+            if (out.data != temp.data)
+            {
+                wcout << username + L" : " << UTF8ToWString(out.data) << endl;
+                temp = out;
+            }
+
+            getline(wcin, message);
+            if (message == L"exit") break; // exitで終了
+            connecter.SendPPMessage(socket, username, message);
+
+            if (!connecter.isConnected)
             {
                 break;
             }

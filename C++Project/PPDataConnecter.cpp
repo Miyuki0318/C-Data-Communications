@@ -91,7 +91,7 @@ unsigned long ConvertFromBase64(const string& base64Str) {
     return result;
 }
 
-PPDataConnecter::PPDataConnecter() : isRunning(false), isConnecting(false), currentSocket(INVALID_SOCKET) {}
+PPDataConnecter::PPDataConnecter() : isConnected(false), isWaiting(false), isCanceled(false) {}
 
 PPDataConnecter::~PPDataConnecter() {
     Finalize();
@@ -112,12 +112,12 @@ void PPDataConnecter::Initialize() {
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         throw runtime_error("Winsockの初期化に失敗しました。");
     }
-    isRunning = true;
+    isConnected = false;
 }
 
 void PPDataConnecter::Finalize() {
     StopCommunication();
-    isRunning = false;
+    isConnected = false;
     WSACleanup();
 }
 
@@ -183,108 +183,136 @@ void PPDataConnecter::AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket
     }
 }
 
-void PPDataConnecter::StartServer()
+// 通信待機とキャンセル状態を管理
+void PPDataConnecter::StartServerAsync(SOCKET& serverSocket, const wstring& username)
 {
-    if (serverThread.joinable()) serverThread.join();
+    isWaiting = true;
+    isCanceled = false;
 
-    isConnecting = true;
-    serverThread = thread([this]()
-        {
-            SOCKET serverSocket = CreateSocket();
-            SOCKET clientSocket = INVALID_SOCKET;
-
-            try
-            {
-                BindAndListen(serverSocket);
-                sockaddr_in serverAddr = {};
-                int addrLen = sizeof(serverAddr);
-                getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen);
-
-                wstring id = UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), serverAddr.sin_port));
-                wcout << L"サーバーID : " << id << endl;
-                wcout << L"接続を待機しています..." << endl;
-
-                while (isConnecting) {
-                    fd_set readfds;
-                    FD_ZERO(&readfds);
-                    FD_SET(serverSocket, &readfds);
-                    timeval timeout = { 0, 500000 }; // 0.5秒のタイムアウト
-
-                    if (select(0, &readfds, nullptr, nullptr, &timeout) > 0) {
-                        AcceptConnection(serverSocket, clientSocket);
-                        wcout << L"クライアントと接続されました。" << endl;
-                        isConnecting = false;
-                        StartCommunication(clientSocket);
-                    }
-                }
-            }
-            catch (const exception& e)
-            {
-                cerr << "サーバーエラー: " << e.what() << endl;
-            }
-
-            if (serverSocket != INVALID_SOCKET) closesocket(serverSocket);
+    // サーバー開始をスレッドで実行
+    thread serverThread([&]() {
+        try {
+            // サーバー開始処理
+            StartServer(serverSocket, username);
+            isConnected = true;
         }
-    );
-}
-void PPDataConnecter::ConnectToServer()
-{
-    if (clientThread.joinable()) clientThread.join();
-
-    isConnecting = true;
-    clientThread = thread([this]()
-        {
-            try
-            {
-                wstring ipAndPort;
-                wcout << L"接続先のサーバーIDを入力: ";
-                wcin >> ipAndPort;
-                auto id = DecodeAndReverseIPPort(WStringToUTF8(ipAndPort));
-
-                SOCKET clientSocket = INVALID_SOCKET;
-                ConnectToServerInternal(clientSocket, id.first, id.second);
-
-                wcout << L"サーバーに接続しました。" << endl;
-                StartCommunication(clientSocket);
-            }
-            catch (const exception& e)
-            {
-                wcerr << L"クライアントエラー: " << e.what() << endl;
-            }
+        catch (const runtime_error& e) {
+            wcout << L"サーバーの開始に失敗しました: " << UTF8ToWString(e.what()) << endl;
         }
-    );
+        isWaiting = false;
+        });
+
+    serverThread.detach();
 }
 
-// クライアント接続内部処理
-void PPDataConnecter::ConnectToServerInternal(SOCKET& clientSocket, const string& ip, int port)
+// サーバー接続をスレッドで開始
+void PPDataConnecter::ConnectToServerAsync(SOCKET& clientSocket, const wstring& username)
 {
-    clientSocket = CreateSocket();
-    
-    sockaddr_in serverAddr = {};
-    serverAddr.sin_family = AF_INET;
-    inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
-    serverAddr.sin_port = htons(port);
+    isWaiting = true;
+    isCanceled = false;
 
-    while (isConnecting)
+    // クライアント接続処理を非同期で実行
+    thread clientThread([&]() {
+        try {
+            // サーバー接続処理
+            ConnectToServer(clientSocket, username);
+            isConnected = true;
+        }
+        catch (const runtime_error& e) {
+            wcout << L"サーバーへの接続に失敗しました: " << UTF8ToWString(e.what()) << endl;
+        }
+        isWaiting = false;
+        });
+
+    clientThread.detach();
+}
+
+void PPDataConnecter::StartCommunication(SOCKET sock)
+{
     {
-        int result = connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
-
-        if (result == 0) {
-            wcout << L"接続しました。" << endl;
-            isConnecting = false;
-            break; // 成功
-        }
-
-        closesocket(clientSocket);
-        clientSocket = CreateSocket();  
-        sockaddr_in serverAddr = {};
-        serverAddr.sin_family = AF_INET;
-        inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
-        serverAddr.sin_port = htons(port);
+        lock_guard<mutex> lock(socketMutex);
+        currentSocket = sock;
     }
 
-    if (!isConnecting) throw runtime_error("接続キャンセルされました。");
+    // 既存の通信スレッドを停止
+    StopCommunication();
+
+    // 新しい通信スレッドを開始
+    isConnected = true;
 }
+
+// 待機中のキャンセル処理
+void PPDataConnecter::CancelCommunication()
+{
+    if (isWaiting) {
+        // 待機状態をキャンセル
+        isCanceled = true;
+        isWaiting = false;
+        // 必要なら待機中のスレッドを終了する処理を追加
+    }
+}
+
+// 通信を停止
+void PPDataConnecter::StopCommunication()
+{
+    if (sendThread.joinable()) {
+        sendThread.join();
+    }
+    if (receiveThread.joinable()) {
+        receiveThread.join();
+    }
+
+    isConnected = false;
+}
+
+
+// サーバーを開始してクライアントからの接続を待つ
+void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
+{
+    BindAndListen(serverSocket);
+    sockaddr_in serverAddr = {};
+    int addrLen = sizeof(serverAddr);
+    getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen);
+    wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
+    wcout << L"接続を待っています..." << endl;
+
+    SOCKET clientSocket;
+    AcceptConnection(serverSocket, clientSocket);
+    wcout << L"接続が確立されました。" << endl;
+
+    // ソケットを非ブロッキングモードに設定
+    u_long mode = 1;
+    ioctlsocket(clientSocket, FIONBIO, &mode);
+
+    // 通信開始
+    StartCommunication(clientSocket);
+}
+
+void PPDataConnecter::ConnectToServer(SOCKET& clientSocket, const wstring& username)
+{
+    wstring id;
+    wcout << L"接続先のサーバーIDを入力してください: ";
+    getline(wcin, id);
+    auto decodeID = DecodeAndReverseIPPort(WStringToUTF8(id));
+
+    sockaddr_in serverAddr = {};
+    serverAddr.sin_family = AF_INET;
+    inet_pton(AF_INET, decodeID.first.c_str(), &serverAddr.sin_addr);
+    serverAddr.sin_port = htons(decodeID.second);
+
+    if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+    {
+        throw runtime_error("接続に失敗しました。");
+    }
+
+    // ソケットを非ブロッキングモードに設定
+    u_long mode = 1;
+    ioctlsocket(clientSocket, FIONBIO, &mode);
+
+    wcout << L"接続しました。" << endl;
+    StartCommunication(clientSocket);
+}
+
 
 // 送信バッファにデータを追加
 void PPDataConnecter::AddToSendBuffer(const std::string& header, const std::string& data) {
@@ -316,56 +344,6 @@ bool PPDataConnecter::GetFromRecvBufferByHeader(const string& header, BufferedDa
     return false;  // 指定ヘッダのデータがない
 }
 
-void PPDataConnecter::StartCommunication(SOCKET sock)
-{
-    {
-        lock_guard<mutex> lock(socketMutex);
-        currentSocket = sock;
-    }
-
-    isRunning = true;
-    thread sendThread([this, sock]()
-        {
-            while (isRunning)
-            {
-                string message;
-                getline(cin, message);
-                send(sock, message.c_str(), message.size(), 0);
-            }
-        }
-    );
-
-    thread receiveThread([this, sock]()
-        {
-            char buffer[1024];
-            while (isRunning)
-            {
-                int bytesReceived = recv(sock, buffer, sizeof(buffer), 0);
-                if (bytesReceived > 0)
-                {
-                    wcout << L"受信: " << UTF8ToWString(string(buffer, bytesReceived)) << endl;
-                }
-            }
-        }
-    );
-
-    sendThread.detach();
-    receiveThread.detach();
-}
-
-void PPDataConnecter::StopCommunication()
-{
-    isConnecting = false; // 接続待機中の処理をキャンセル
-    if (serverThread.joinable()) serverThread.join();
-    if (clientThread.joinable()) clientThread.join();
-
-    lock_guard<mutex> lock(socketMutex);
-    if (currentSocket != INVALID_SOCKET) {
-        closesocket(currentSocket);
-        currentSocket = INVALID_SOCKET;
-    }
-}
-
 // メッセージを送信
 void PPDataConnecter::SendPPMessage(SOCKET sock, const wstring& username, const wstring& message)
 {
@@ -391,7 +369,7 @@ void PPDataConnecter::ReceivePPMessages(SOCKET socket)
         if (bytesReceived > 0)
         {
             buffer[bytesReceived] = '\0'; // 受信データをnull終端
-            wcout << UTF8ToWString(string(buffer, bytesReceived)) << endl;
+            ReceiveData(string(buffer, bytesReceived));
         }
         else
         {

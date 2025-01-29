@@ -42,21 +42,26 @@ private:
     static mutex instanceMutex;
 
     // 非同期通信用のメンバ
-    SOCKET currentSocket;
-    thread serverThread;
-    thread clientThread;
-    mutex socketMutex;
-    mutex threadMutex;
+    condition_variable waitCondition;  // 通信待機時に使用
+
+    // 非同期通信のスレッド
+    thread sendThread;
+    thread receiveThread;
+
+    mutex socketMutex;  // ソケットに関する排他制御
 
     deque<BufferedData> sendBuffer;
     deque<BufferedData> recvBuffer;
     mutex sendMutex;
     mutex recvMutex;
 
+    SOCKET currentSocket;
+
 public:
 
-    atomic<bool> isRunning;
-    atomic<bool> isConnecting;
+    atomic<bool> isWaiting;  // 通信待機状態
+    atomic<bool> isCanceled; // 通信キャンセル状態
+    atomic<bool> isConnected; // 接続状態
 
     // コンストラクタとデストラクタ
     PPDataConnecter(); // クラスの初期化
@@ -76,23 +81,26 @@ public:
     SOCKET CreateSocket();
 
     // サーバーを開始し、クライアントからの接続を待機
-    void StartServer();
+    void StartServer(SOCKET& socket, const wstring& username);
 
     // サーバーに接続して通信を開始
-    void ConnectToServer();
+    void ConnectToServer(SOCKET& socket, const wstring& username);
 
     // メッセージを送信する静的メソッド
-    static void SendPPMessage(SOCKET sock, const wstring& username, const wstring& message);
+    void SendPPMessage(SOCKET sock, const wstring& username, const wstring& message);
 
     // メッセージを受信する静的メソッド
-    static void ReceivePPMessages(SOCKET socket);
+    void ReceivePPMessages(SOCKET socket);
 
     // スレッド非同期通信関連
     void StartCommunication(SOCKET sock);
+    void CancelCommunication();
     void StopCommunication();
+    void Communication(SOCKET sock);
     void BindAndListen(SOCKET& serverSocket);
     void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
-    void ConnectToServerInternal(SOCKET& clientSocket, const string& ip, int port);
+    void StartServerAsync(SOCKET& serverSocket, const wstring& username); // サーバースレッドの開始
+    void ConnectToServerAsync(SOCKET& clientSocket, const wstring& username); // クライアントスレッドの開始
 
     // 送信バッファにデータを追加
     void AddToSendBuffer(const std::string& header, const std::string& data);
