@@ -237,14 +237,14 @@ void PPDataConnecter::ConnectToServer()
             try
             {
                 string ipAndPort;
-                cout << "接続先のサーバーIDを入力: ";
+                wcout << L"接続先のサーバーIDを入力: ";
                 cin >> ipAndPort;
                 auto id = DecodeAndReverseIPPort(ipAndPort);
 
                 SOCKET clientSocket = INVALID_SOCKET;
                 ConnectToServerInternal(clientSocket, id.first, id.second);
 
-                cout << "サーバーに接続しました。" << endl;
+                wcout << L"サーバーに接続しました。" << endl;
                 StartCommunication(clientSocket);
             }
             catch (const exception& e)
