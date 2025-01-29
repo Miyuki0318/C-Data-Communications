@@ -159,6 +159,9 @@ void PPDataConnecter::BindAndListen(SOCKET& serverSocket)
         throw runtime_error("ソケットの作成に失敗しました。");
     }
 
+    u_long mode = 1;
+    ioctlsocket(serverSocket, FIONBIO, &mode);
+
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
@@ -263,6 +266,10 @@ void PPDataConnecter::ConnectToServerInternal(SOCKET& clientSocket, const string
     {
         throw runtime_error("ソケットの作成に失敗しました。");
     }
+
+    // ノンブロッキングモードを有効化
+    u_long mode = 1;
+    ioctlsocket(clientSocket, FIONBIO, &mode);
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
