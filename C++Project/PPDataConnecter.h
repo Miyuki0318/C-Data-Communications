@@ -3,8 +3,14 @@
 
 #include <string>
 #include <fstream>
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <functional>
+#include <unordered_map>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <condition_variable>
 
 using namespace std;
 
@@ -16,16 +22,52 @@ wstring UTF8ToWString(const string& utf8Str); // UTF-8Œ`®‚Ìstring‚ğwstring‚É•ÏŠ
 string ConvertToBase64(unsigned long number);
 unsigned long ConvertFromBase64(const string& base64Str);
 
+// ƒf[ƒ^ƒoƒbƒtƒ@‚Ì‚½‚ß‚Ì\‘¢‘Ì
+struct BufferedData
+{
+    string header;  // ƒf[ƒ^‚Ìí—Ş‚ğ¯•Ê‚·‚éƒwƒbƒ_[
+    string data;    // ÀÛ‚Ìƒf[ƒ^
+};
+
 // PPDataConnecterƒNƒ‰ƒX‚ÍAƒf[ƒ^’ÊM‚âƒ\ƒPƒbƒgŠÇ—‚ğs‚¤
 class PPDataConnecter
 {
+private:
+
+    // ƒoƒbƒtƒ@ƒTƒCƒY
+    static const int BUFFER_SIZE = 4096;
+
+    // ƒVƒ“ƒOƒ‹ƒgƒ“ƒCƒ“ƒXƒ^ƒ“ƒX
+    static PPDataConnecter* instance;
+    static mutex instanceMutex;
+
+    // ”ñ“¯Šú’ÊM—p‚Ìƒƒ“ƒo
+    SOCKET currentSocket;
+    thread serverThread;
+    thread clientThread;
+    mutex socketMutex;
+    mutex threadMutex;
+
+    deque<BufferedData> sendBuffer;
+    deque<BufferedData> recvBuffer;
+    mutex sendMutex;
+    mutex recvMutex;
+
 public:
+
+    atomic<bool> isRunning;
+    atomic<bool> isConnecting;
+
     // ƒRƒ“ƒXƒgƒ‰ƒNƒ^‚ÆƒfƒXƒgƒ‰ƒNƒ^
     PPDataConnecter(); // ƒNƒ‰ƒX‚Ì‰Šú‰»
     ~PPDataConnecter(); // ƒNƒ‰ƒX‚ÌI—¹ˆ—
 
-    // Winsock‚Ì‰Šú‰»
-    void InitializeWinsock();
+    // ƒVƒ“ƒOƒ‹ƒgƒ“ƒAƒNƒZƒX
+    static PPDataConnecter* GetNetworkPtr();
+
+    // ‰Šú‰»‚ÆI—¹
+    void Initialize();
+    void Finalize();
 
     // ƒRƒ“ƒ\[ƒ‹‚ğUnicodeiUTF-8j‚Éİ’è
     void SetConsoleToUnicode();
@@ -34,16 +76,10 @@ public:
     SOCKET CreateSocket();
 
     // ƒT[ƒo[‚ğŠJn‚µAƒNƒ‰ƒCƒAƒ“ƒg‚©‚ç‚ÌÚ‘±‚ğ‘Ò‹@
-    void StartServer(SOCKET& serverSocket, const wstring& username);
-    
+    void StartServer();
+
     // ƒT[ƒo[‚ÉÚ‘±‚µ‚Ä’ÊM‚ğŠJn
-    void ConnectToServer(SOCKET& clientSocket, const wstring& username);
-
-    // ƒT[ƒo[‚ğŠJn‚µAƒNƒ‰ƒCƒAƒ“ƒg‚©‚ç‚ÌÚ‘±‚ğ‘Ò‹@‚µAƒtƒ@ƒCƒ‹‚Ì‘—óM‚ğs‚¤
-    void StartFileTransServer(SOCKET& socket, const std::wstring& username);
-
-    // ƒT[ƒo[‚ÉÚ‘±‚µ‚Ä’ÊM‚ğŠJn‚µAƒtƒ@ƒCƒ‹‚Ì‘—óM‚ğs‚¤
-    void ConnectToFileTransServer(SOCKET& socket, const std::wstring& username);
+    void ConnectToServer();
 
     // ƒƒbƒZ[ƒW‚ğ‘—M‚·‚éÃ“Iƒƒ\ƒbƒh
     static void SendPPMessage(SOCKET sock, const wstring& username, const wstring& message);
@@ -51,11 +87,23 @@ public:
     // ƒƒbƒZ[ƒW‚ğóM‚·‚éÃ“Iƒƒ\ƒbƒh
     static void ReceivePPMessages(SOCKET socket);
 
-    // ƒtƒ@ƒCƒ‹‚ğ‘—M‚·‚éÃ“Iƒƒ\ƒbƒh
-    static void SendFile(SOCKET& socket, const wstring& filename, const wstring& fileContent);
-    
-    // ƒtƒ@ƒCƒ‹‚ğóM‚·‚éÃ“Iƒƒ\ƒbƒh
-    static void ReceiveFile(SOCKET& clientSocket, wstring& receivedFile);
+    // ƒXƒŒƒbƒh”ñ“¯Šú’ÊMŠÖ˜A
+    void StartCommunication(SOCKET sock);
+    void StopCommunication();
+    void BindAndListen(SOCKET& serverSocket);
+    void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
+    void ConnectToServerInternal(SOCKET& clientSocket, const string& ip, int port);
+
+    // ‘—Mƒoƒbƒtƒ@‚Éƒf[ƒ^‚ğ’Ç‰Á
+    void AddToSendBuffer(const std::string& header, const std::string& data);
+
+    // óMƒoƒbƒtƒ@‚©‚çƒf[ƒ^‚ğæ“¾
+    bool GetFromRecvBuffer(BufferedData& outData);
+    bool GetFromRecvBufferByHeader(const string& header, BufferedData& outData);
+
+    // ƒf[ƒ^‘—óM‚Ìˆ—
+    void SendData();  // ƒoƒbƒtƒ@‚©‚ç‘—M
+    void ReceiveData(const std::string& rawData);  // óMƒf[ƒ^‚ğˆ—
 
     // ƒ[ƒJƒ‹IPƒAƒhƒŒƒX‚ğæ“¾‚·‚éÃ“Iƒƒ\ƒbƒh
     static string GetLocalIPAddress();
@@ -69,20 +117,9 @@ public:
 
 private:
 
-    // ƒT[ƒo[ƒ\ƒPƒbƒg‚ğƒoƒCƒ“ƒh‚µ‚ÄƒŠƒbƒXƒ“ó‘Ô‚É‚·‚é
-    void BindAndListen(SOCKET& serverSocket);
-
-    // ƒNƒ‰ƒCƒAƒ“ƒg‚ÌÚ‘±‚ğó‚¯“ü‚ê‚é
-    void AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket);
-
-    // •¶š—ñ‚ğƒtƒ@ƒCƒ‹‚É•Û‘¶‚·‚é
-    static void SaveString(SOCKET& socket, const wstring& str);
-
-    // ƒtƒ@ƒCƒ‹‚©‚ç•¶š—ñ‚ğæ“¾‚·‚é
-    static void ReadString(SOCKET& socket, string& str);
-
-    // logƒtƒHƒ‹ƒ_ì¬ŠÖ”
-    static void CreateLogDirectoryIfNotExist();
+    // “à•”—p: ‘—Mƒf[ƒ^‚ÌƒtƒH[ƒ}ƒbƒg•ÏŠ·
+    static string Serialize(const BufferedData& data);
+    static BufferedData Deserialize(const std::string& rawData);
 };
 
 #endif

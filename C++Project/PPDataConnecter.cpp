@@ -10,12 +10,14 @@
 #include <iomanip>
 #include <algorithm>
 #include <Windows.h>
+#include <winsock2.h>
 #include <ws2tcpip.h>
 
 #undef max  // 型の最大用のmaxを使う為のundef
 #pragma comment(lib, "Ws2_32.lib") // Winsock2ライブラリのリンク指定
 
-const int BUFFER_SIZE = 4096; // 受信バッファのサイズを定義
+PPDataConnecter* PPDataConnecter::instance = nullptr;
+mutex PPDataConnecter::instanceMutex;
 
 // wstringからUTF-8に変換する関数（改良版）
 string WStringToUTF8(const wstring& wstr)
@@ -89,23 +91,34 @@ unsigned long ConvertFromBase64(const string& base64Str) {
     return result;
 }
 
-// コンストラクタ：特に初期化は行わない
-PPDataConnecter::PPDataConnecter() {}
+PPDataConnecter::PPDataConnecter() : isRunning(false), isConnecting(false), currentSocket(INVALID_SOCKET) {}
 
-// デストラクタ：Winsockのクリーンアップを行う
-PPDataConnecter::~PPDataConnecter()
-{
-    WSACleanup();
+PPDataConnecter::~PPDataConnecter() {
+    Finalize();
 }
 
-// Winsockの初期化
-void PPDataConnecter::InitializeWinsock()
+PPDataConnecter* PPDataConnecter::GetNetworkPtr()
 {
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) 
+    lock_guard<mutex> lock(instanceMutex);
+    if (!instance)
     {
+        instance = new PPDataConnecter();
+    }
+    return instance;
+}
+
+void PPDataConnecter::Initialize() {
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         throw runtime_error("Winsockの初期化に失敗しました。");
     }
+    isRunning = true;
+}
+
+void PPDataConnecter::Finalize() {
+    StopCommunication();
+    isRunning = false;
+    WSACleanup();
 }
 
 // コンソールをUTF-8対応に設定
@@ -139,21 +152,23 @@ SOCKET PPDataConnecter::CreateSocket()
     return sock;
 }
 
-// ソケットをバインドし、リッスンを開始
 void PPDataConnecter::BindAndListen(SOCKET& serverSocket)
 {
+    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket == INVALID_SOCKET) {
+        throw runtime_error("ソケットの作成に失敗しました。");
+    }
+
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY; // 全てのローカルIPアドレスをバインド
-    serverAddr.sin_port = htons(0); // 任意のポート番号を使用
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(0);
 
-    if (bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
-    {
+    if (::bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
         throw runtime_error("バインドに失敗しました。");
     }
 
-    if (listen(serverSocket, 1) == SOCKET_ERROR)
-    {
+    if (listen(serverSocket, 1) == SOCKET_ERROR) {
         throw runtime_error("リッスンに失敗しました。");
     }
 }
@@ -168,145 +183,182 @@ void PPDataConnecter::AcceptConnection(SOCKET serverSocket, SOCKET& clientSocket
     }
 }
 
-// サーバーを開始してクライアントからの接続を待つ
-void PPDataConnecter::StartServer(SOCKET& serverSocket, const wstring& username)
+void PPDataConnecter::StartServer()
 {
-    BindAndListen(serverSocket);
+    if (serverThread.joinable()) serverThread.join();
 
-    sockaddr_in serverAddr = {};
-    int addrLen = sizeof(serverAddr);
-    getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen); // バインドされたポート番号を取得
-    wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
-    wcout << L"接続を待っています..." << endl;
+    isConnecting = true;
+    serverThread = thread([this]()
+        {
+            SOCKET serverSocket = CreateSocket();
+            SOCKET clientSocket = INVALID_SOCKET;
 
-    SOCKET clientSocket;
-    AcceptConnection(serverSocket, clientSocket);
+            try
+            {
+                BindAndListen(serverSocket);
+                sockaddr_in serverAddr = {};
+                int addrLen = sizeof(serverAddr);
+                getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen);
 
-    wcout << L"接続が確立されました。" << endl;
-    thread(ReceivePPMessages, clientSocket).detach(); // 別スレッドでメッセージ受信を開始
+                wstring id = UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), serverAddr.sin_port));
+                wcout << L"サーバーID : " << id << endl;
+                wcout << L"接続を待機しています..." << endl;
 
-    wstring message;
-    while (true)
-    {
-        getline(wcin, message);
-        if (message == L"exit") break; // exitで終了
-        SendPPMessage(clientSocket, username, message);
-    }
+                while (isConnecting) {
+                    fd_set readfds;
+                    FD_ZERO(&readfds);
+                    FD_SET(serverSocket, &readfds);
+                    timeval timeout = { 0, 500000 }; // 0.5秒のタイムアウト
 
-    closesocket(clientSocket);
+                    if (select(0, &readfds, nullptr, nullptr, &timeout) > 0) {
+                        AcceptConnection(serverSocket, clientSocket);
+                        wcout << L"クライアントと接続されました。" << endl;
+                        isConnecting = false;
+                        StartCommunication(clientSocket);
+                    }
+                }
+            }
+            catch (const exception& e)
+            {
+                cerr << "サーバーエラー: " << e.what() << endl;
+            }
+
+            if (serverSocket != INVALID_SOCKET) closesocket(serverSocket);
+        }
+    );
+}
+void PPDataConnecter::ConnectToServer()
+{
+    if (clientThread.joinable()) clientThread.join();
+
+    isConnecting = true;
+    clientThread = thread([this]()
+        {
+            try
+            {
+                string ipAndPort;
+                cout << "接続先のサーバーIDを入力: ";
+                cin >> ipAndPort;
+                auto id = DecodeAndReverseIPPort(ipAndPort);
+
+                SOCKET clientSocket = INVALID_SOCKET;
+                ConnectToServerInternal(clientSocket, id.first, id.second);
+
+                cout << "サーバーに接続しました。" << endl;
+                StartCommunication(clientSocket);
+            }
+            catch (const exception& e)
+            {
+                cerr << "クライアントエラー: " << e.what() << endl;
+            }
+        }
+    );
 }
 
-// クライアントとしてサーバーに接続
-void PPDataConnecter::ConnectToServer(SOCKET& clientSocket, const wstring& username)
+// クライアント接続内部処理
+void PPDataConnecter::ConnectToServerInternal(SOCKET& clientSocket, const string& ip, int port)
 {
-    wstring id;
-    wcout << L"接続先のサーバーIDを入力してください: ";
-    getline(wcin, id);
-    auto decodeID = DecodeAndReverseIPPort(WStringToUTF8(id));
+    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (clientSocket == INVALID_SOCKET)
+    {
+        throw runtime_error("ソケットの作成に失敗しました。");
+    }
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
-    inet_pton(AF_INET, decodeID.first.c_str(), &serverAddr.sin_addr); // IPアドレスをバイナリ形式に変換
-    serverAddr.sin_port = htons(decodeID.second);
+    inet_pton(AF_INET, ip.c_str(), &serverAddr.sin_addr);
+    serverAddr.sin_port = htons(port);
 
-    if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+    while (isConnecting)
     {
-        throw runtime_error("接続に失敗しました。");
+        if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == 0)
+        {
+            break;
+        }
+        this_thread::sleep_for(chrono::milliseconds(500));
     }
 
-    wcout << L"接続しました。" << endl;
-    thread(ReceivePPMessages, clientSocket).detach(); // 別スレッドでメッセージ受信を開始
-
-    wstring message;
-    while (true)
-    {
-        getline(wcin, message);
-        if (message == L"exit") break;
-        SendPPMessage(clientSocket, username, message);
-    }
+    if (!isConnecting) throw runtime_error("接続キャンセルされました。");
 }
 
-void PPDataConnecter::StartFileTransServer(SOCKET& serverSocket, const wstring& username)
-{
-    // サーバーを開始してクライアントからの接続を待つ
-    BindAndListen(serverSocket);
-
-    sockaddr_in serverAddr = {};
-    int addrLen = sizeof(serverAddr);
-    getsockname(serverSocket, (sockaddr*)&serverAddr, &addrLen); // バインドされたポート番号を取得
-    wcout << L"サーバーID: " << UTF8ToWString(EncodeAndReverseIPPort(GetLocalIPAddress(), ntohs(serverAddr.sin_port))) << endl;
-    wcout << L"接続を待っています..." << endl;
-
-    SOCKET clientSocket;
-    AcceptConnection(serverSocket, clientSocket);
-
-    wcout << L"接続が確立されました。" << endl;
-
-    // logフォルダの初期化
-    CreateLogDirectoryIfNotExist();
-
-    // ファイルの受信
-    wstring fileName;
-    wcout << L"送信するファイルのファイル名を入力してください: ";
-    getline(wcin, fileName);
-
-    wstring fileContent;
-    wcout << L"送信するファイルの内容を入力してください: ";
-    getline(wcin, fileContent);
-
-    // ファイルの送信
-    SendFile(clientSocket, fileName, fileContent);
-
-    // ファイル受信を待機
-    wstring receivedFile;
-    ReceiveFile(clientSocket, receivedFile);
-
-    // ログの表示
-    wcout << L"受信したファイルの内容: " << receivedFile << endl;
-
-    closesocket(clientSocket);
+// 送信バッファにデータを追加
+void PPDataConnecter::AddToSendBuffer(const std::string& header, const std::string& data) {
+    std::lock_guard<std::mutex> lock(sendMutex);
+    sendBuffer.push_back({ header, data });
 }
 
-void PPDataConnecter::ConnectToFileTransServer(SOCKET& clientSocket, const wstring& username)
+// 受信バッファからデータを取得
+bool PPDataConnecter::GetFromRecvBuffer(BufferedData& outData) {
+    std::lock_guard<std::mutex> lock(recvMutex);
+    if (recvBuffer.empty()) return false;
+
+    outData = recvBuffer.front();
+    recvBuffer.pop_front();
+    return true;
+}
+
+// 受信バッファから特定のヘッダのデータを取得
+bool PPDataConnecter::GetFromRecvBufferByHeader(const string& header, BufferedData& outData) {
+    std::lock_guard<std::mutex> lock(recvMutex);
+
+    for (auto it = recvBuffer.begin(); it != recvBuffer.end(); ++it) {
+        if (it->header == header) {
+            outData = *it;
+            recvBuffer.erase(it);
+            return true;
+        }
+    }
+    return false;  // 指定ヘッダのデータがない
+}
+
+void PPDataConnecter::StartCommunication(SOCKET sock)
 {
-    wstring id;
-    wcout << L"接続先のサーバーIDを入力してください: ";
-    getline(wcin, id);
-    auto decodeID = DecodeAndReverseIPPort(WStringToUTF8(id));
-
-    sockaddr_in serverAddr = {};
-    serverAddr.sin_family = AF_INET;
-    inet_pton(AF_INET, decodeID.first.c_str(), &serverAddr.sin_addr); // IPアドレスをバイナリ形式に変換
-    serverAddr.sin_port = htons(decodeID.second);
-
-    if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
     {
-        throw runtime_error("接続に失敗しました。");
+        lock_guard<mutex> lock(socketMutex);
+        currentSocket = sock;
     }
 
-    wcout << L"接続しました。" << endl;
+    isRunning = true;
+    thread sendThread([this, sock]()
+        {
+            while (isRunning)
+            {
+                string message;
+                getline(cin, message);
+                send(sock, message.c_str(), message.size(), 0);
+            }
+        }
+    );
 
-    // logフォルダの初期化
-    CreateLogDirectoryIfNotExist();
+    thread receiveThread([this, sock]()
+        {
+            char buffer[1024];
+            while (isRunning)
+            {
+                int bytesReceived = recv(sock, buffer, sizeof(buffer), 0);
+                if (bytesReceived > 0)
+                {
+                    wcout << L"受信: " << UTF8ToWString(string(buffer, bytesReceived)) << endl;
+                }
+            }
+        }
+    );
 
-    // ファイルの送信
-    wstring fileName;
-    wcout << L"送信するファイルのファイル名を入力してください: ";
-    getline(wcin, fileName);
+    sendThread.detach();
+    receiveThread.detach();
+}
 
-    wstring fileContent;
-    wcout << L"送信するファイルの内容を入力してください: ";
-    getline(wcin, fileContent);
+void PPDataConnecter::StopCommunication()
+{
+    isConnecting = false; // 接続待機中の処理をキャンセル
+    if (serverThread.joinable()) serverThread.join();
+    if (clientThread.joinable()) clientThread.join();
 
-    SendFile(clientSocket, fileName, fileContent);
-
-    // ファイル受信
-    wstring receivedFile;
-    ReceiveFile(clientSocket, receivedFile);
-
-    wcout << L"受信したファイルの内容: " << receivedFile << endl;
-
-    closesocket(clientSocket);
+    lock_guard<mutex> lock(socketMutex);
+    if (currentSocket != INVALID_SOCKET) {
+        closesocket(currentSocket);
+        currentSocket = INVALID_SOCKET;
+    }
 }
 
 // メッセージを送信
@@ -314,9 +366,9 @@ void PPDataConnecter::SendPPMessage(SOCKET sock, const wstring& username, const 
 {
     wstring fullMessage = username + L": " + message; // ユーザー名とメッセージを結合
     string utf8Message = WStringToUTF8(fullMessage);
-    
+
     // 長さチェック
-    if (utf8Message.length() > static_cast<size_t>(numeric_limits<int>::max())) 
+    if (utf8Message.length() > static_cast<size_t>(numeric_limits<int>::max()))
     {
         throw runtime_error("送信メッセージが大きすぎます。");
     }
@@ -343,30 +395,25 @@ void PPDataConnecter::ReceivePPMessages(SOCKET socket)
     }
 }
 
-void PPDataConnecter::SendFile(SOCKET& clientSocket, const wstring& fileName, const wstring& fileContent)
-{
-    // ファイル名と内容を送信
-    SaveString(clientSocket, fileName);
-    SaveString(clientSocket, fileContent);
-    wcout << L"ファイルが送信されました。" << endl;
+// バッファからデータを取得し送信する
+void PPDataConnecter::SendData() {
+    std::lock_guard<std::mutex> lock(sendMutex);
+    if (sendBuffer.empty()) return;
+
+    BufferedData data = sendBuffer.front();
+    sendBuffer.pop_front();
+
+    // 送信処理（ネットワークAPIと統合する）
+    std::string rawData = Serialize(data);
+    // send(rawData);  // ここにネットワーク送信処理を実装
 }
 
-void PPDataConnecter::ReceiveFile(SOCKET& clientSocket, wstring& receivedFile)
-{
-    // サーバーからファイルの内容を受信
-    string receivedFileName;
-    ReadString(clientSocket, receivedFileName);
+// 受信データを処理
+void PPDataConnecter::ReceiveData(const std::string& rawData) {
+    BufferedData data = Deserialize(rawData);
 
-    string receivedFileContent;
-    ReadString(clientSocket, receivedFileContent);
-
-    // 受信したファイルの内容をログに保存
-    string filePath = "./log/" + receivedFileName + ".txt";
-    ofstream outFile(filePath, ios::out);
-    outFile << receivedFileContent;
-    outFile.close();
-
-    receivedFile = UTF8ToWString(receivedFileContent);  // 受信した内容を表示用に格納
+    std::lock_guard<std::mutex> lock(recvMutex);
+    recvBuffer.push_back(data);
 }
 
 // ローカルIPアドレスを取得
@@ -392,7 +439,6 @@ wstring PPDataConnecter::GetLocalIPAddressW()
     return UTF8ToWString(GetLocalIPAddress());
 }
 
-// エンコードして反転する関数
 string PPDataConnecter::EncodeAndReverseIPPort(const string& ipAddress, unsigned short port)
 {
     // inet_ptonを使用してIPアドレスをバイナリ形式に変換
@@ -457,73 +503,17 @@ pair<string, unsigned short> PPDataConnecter::DecodeAndReverseIPPort(const strin
     return { ipAddress, port };
 }
 
-void PPDataConnecter::SaveString(SOCKET& socket, const wstring& str)
-{
-    string utf8Message = WStringToUTF8(str);
 
-    // 長さチェック
-    if (utf8Message.length() > static_cast<size_t>(numeric_limits<int>::max()))
-    {
-        throw runtime_error("送信メッセージが大きすぎます。");
-    }
-
-    send(socket, utf8Message.c_str(), static_cast<int>(utf8Message.length()), 0);
+// **データを "ヘッダ:データ" の形式でシリアライズ**
+string PPDataConnecter::Serialize(const BufferedData& data) {
+    return data.header + ":" + data.data;
 }
 
-void PPDataConnecter::ReadString(SOCKET& socket, string& str)
-{
-    char buffer[BUFFER_SIZE];
-
-    int bytesReceived = recv(socket, buffer, BUFFER_SIZE - 1, 0);
-    if (bytesReceived > 0)
-    {
-        buffer[bytesReceived] = '\0'; // 受信データをnull終端
-        str = string(buffer, bytesReceived);
+// **受信データをパース**
+BufferedData PPDataConnecter::Deserialize(const std::string& rawData) {
+    size_t pos = rawData.find(':');
+    if (pos == std::string::npos) {
+        return { "Unknown", rawData };  // ヘッダがない場合は "Unknown" とする
     }
-}
-
-void PPDataConnecter::CreateLogDirectoryIfNotExist()
-{
-    // logフォルダのパス
-    const wstring logDirPath = L"./log";
-
-    // logフォルダが存在するか確認
-    DWORD ftyp = GetFileAttributes(logDirPath.c_str());
-    if (ftyp == INVALID_FILE_ATTRIBUTES) 
-    {
-        // フォルダが存在しない場合は作成する
-        CreateDirectory(logDirPath.c_str(), NULL);
-    }
-    else if (!(ftyp & FILE_ATTRIBUTE_DIRECTORY)) 
-    {
-        // フォルダがファイルだった場合、何もせず戻る
-        return;
-    }
-
-    // logフォルダ内のファイルを削除
-    WIN32_FIND_DATA findFileData;
-    HANDLE hFind = FindFirstFile((logDirPath + L"/*").c_str(), &findFileData);
-
-    if (hFind == INVALID_HANDLE_VALUE) 
-    {
-        return; // logフォルダ内のファイルを読み取れない場合、何もせず戻る
-    }
-
-    do 
-    {
-        const wstring fileName = findFileData.cFileName;
-
-        // "." または ".." は無視
-        if (fileName == L"." || fileName == L"..")
-            continue;
-
-        // ファイルのフルパス
-        string filePath = WStringToUTF8(logDirPath + L"/" + fileName);
-
-        // ファイルを削除
-        DeleteFileA(filePath.c_str());
-
-    } while (FindNextFile(hFind, &findFileData) != 0);
-
-    FindClose(hFind);
+    return { rawData.substr(0, pos), rawData.substr(pos + 1) };
 }

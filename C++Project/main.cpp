@@ -15,7 +15,7 @@ int main()
         connecter.SetConsoleToUnicode();
 
         // Winsockライブラリを初期化
-        connecter.InitializeWinsock();
+        connecter.Initialize();
 
         // ソケットを作成
         SOCKET socket = connecter.CreateSocket();
@@ -33,17 +33,25 @@ int main()
         // サーバーモードの場合
         if (mode == L"Y" || mode == L"y")
         {
-            connecter.StartServer(socket, username); // サーバーを起動
+            connecter.StartServer(); // サーバーを起動
         }
         // クライアントモードの場合
         else if (mode == L"N" || mode == L"n")
         {
-            connecter.ConnectToServer(socket, username); // サーバーに接続
+            connecter.ConnectToServer(); // サーバーに接続
         }
         else
         {
             // 無効な選択肢が入力された場合
             wcout << L"無効な選択です。" << endl;
+        }
+
+        while (connecter.isRunning || connecter.isConnecting)
+        {
+            if (!connecter.isRunning)
+            {
+                break;
+            }
         }
 
         // ソケットを閉じる
