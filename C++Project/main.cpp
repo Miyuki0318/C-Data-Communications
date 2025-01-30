@@ -1,6 +1,7 @@
 #include "PPDataConnecter.h"
 #include <iostream>
 #include <string>
+#include <thread>
 
 using namespace std;
 
@@ -46,24 +47,9 @@ int main()
             wcout << L"–³Œø‚È‘I‘ð‚Å‚·B" << endl;
         }
 
-        BufferedData out;
-        BufferedData temp;
-        wstring message;
-
         while (connecter.isConnected || connecter.isWaiting)
         {
             if (connecter.isWaiting) continue;
-
-            connecter.GetFromRecvBuffer(out);
-            if (out.data != temp.data)
-            {
-                wcout << username + L" : " << UTF8ToWString(out.data) << endl;
-                temp = out;
-            }
-
-            getline(wcin, message);
-            if (message == L"exit") break; // exit‚ÅI—¹
-            connecter.SendPPMessage(socket, username, message);
 
             if (!connecter.isConnected)
             {
